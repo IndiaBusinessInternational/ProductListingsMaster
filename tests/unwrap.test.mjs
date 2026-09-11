@@ -37,6 +37,19 @@ test('the provider metadata label is never shown', () => {
   assert.equal(unwrapText(JSON.stringify({ Answer: ANSWER, model: 'deepseek-v4-flash' })), ANSWER, 'key match is case-insensitive');
 });
 
+test('a nested wrap is peeled all the way', () => {
+  // seen intermittently on the live site: the model put JSON inside the answer field
+  assert.equal(unwrapText(JSON.stringify({ answer: JSON.stringify({ answer: ANSWER }) })), ANSWER);
+  assert.equal(unwrapText(JSON.stringify({ response: JSON.stringify({ type: 'json_object', answer: ANSWER }) })), ANSWER);
+  assert.equal(unwrapText(JSON.stringify({ answer: '```json\n' + JSON.stringify({ answer: ANSWER }) + '\n```' })), ANSWER);
+});
+
+test('peeling stops at prose and never loops away a real answer', () => {
+  assert.equal(unwrapText(ANSWER), ANSWER);
+  assert.equal(unwrapText(JSON.stringify({ answer: 'The sheet is {"ready"} to upload.' })), 'The sheet is {"ready"} to upload.');
+  assert.equal(unwrapText('"' + ANSWER + '"'), '"' + ANSWER + '"', 'a bare JSON string is not an object — left alone');
+});
+
 test('empty and junk inputs never throw', () => {
   for (const v of ['', null, undefined, '{}', '[]', '{"a":null}', '{ broken']) assert.equal(typeof unwrapText(v), 'string');
   assert.equal(unwrapText('{}'), '{}');

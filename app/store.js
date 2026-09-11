@@ -1,5 +1,5 @@
 /* IBI Product Listings Master — storage (IndexedDB, local-first) + cloud sync client */
-export const APP_VERSION = '1.1.6';
+export const APP_VERSION = '1.1.7';
 const DB_NAME = 'plm', DB_VER = 1;
 const STORES = ['products', 'listings', 'perf', 'channels', 'settings', 'kwcache'];
 let dbp = null;

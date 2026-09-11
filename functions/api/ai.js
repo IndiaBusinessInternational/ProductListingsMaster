@@ -21,7 +21,15 @@ function extractJson(text) {
  * user on the live site. So: take whatever strings the object holds, in order, and never
  * show the wrapper. Anything that is not JSON is already the answer. */
 const ANSWER_KEYS = ['answer', 'response', 'reply', 'text', 'content', 'message', 'result', 'output'];
+/* Asked for JSON, a model sometimes nests it: {"answer":"{\"answer\":\"…\"}"}. Seen
+ * intermittently on the live site with DeepSeek, so peel until the result is no longer
+ * a JSON object. Prose never parses as one, and a bare JSON *string* is left alone. */
 export function unwrapText(raw) {
+  let out = unwrapOnce(raw);
+  for (let i = 0; i < 3; i++) { const next = unwrapOnce(out); if (next === out) break; out = next; }
+  return out;
+}
+function unwrapOnce(raw) {
   const s = String(raw == null ? '' : raw).trim().replace(/^```[a-z]*\s*/i, '').replace(/\s*```$/, '').trim();
   const strings = o => typeof o === 'string' ? [o] : Array.isArray(o) ? o.flatMap(strings) : (o && typeof o === 'object') ? Object.values(o).flatMap(strings) : [];
   const tryParse = t => { try { return JSON.parse(t); } catch { return undefined; } };
