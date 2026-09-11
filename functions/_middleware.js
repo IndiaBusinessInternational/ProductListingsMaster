@@ -8,13 +8,12 @@ export const onRequest = async ({ request, next }) => {
   h.set('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
   const path = new URL(request.url).pathname;
   if (path.startsWith('/api/')) h.set('Cache-Control', 'no-store');
-  /* The app's filenames are not content-hashed, and Cloudflare Pages serves static
-     assets with max-age=14400 — a Cache-Control line in _headers is ignored for them,
-     so after a release a returning visitor could run a fresh index.html against four
-     hours of stale modules (seen live: badge v1.1.2 beside "App v1.1.0"). Middleware
-     headers do win, so revalidate the shell every load. The ETag makes that a 304 of a
-     few bytes, and the service worker still serves these from its own cache offline. */
-  if (/^\/app\/.*\.(?:js|css|webmanifest)$/.test(path) || path === '/app/' || path === '/app/index.html') h.set('Cache-Control', 'no-cache');
+  /* ⚠ Do NOT try to set Cache-Control on the app's static files here or in _headers.
+     Cloudflare Pages overwrites it for assets (measured: every other header set in this
+     same block is applied, that one is not — /app/store.js stays max-age=14400 even on
+     an edge MISS). What actually keeps a release consistent is the service worker:
+     bumping CACHE_NAME re-precaches the whole shell with {cache:'reload'}, which
+     bypasses the HTTP cache and swaps every module together. Bump it every release. */
   if (path === '/admin' || path === '/admin.html') h.set('X-Robots-Tag', 'noindex');
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
 };

@@ -1,4 +1,4 @@
-# IBI Product Listings Master v1.1.3
+# IBI Product Listings Master v1.1.4
 
 **List once, sell everywhere.** A SaaS web app by India Business International: one master product record in, marketplace-ready listings out for Amazon India, Amazon Bazaar, Flipkart, Shopsy, Meesho, ShopClues, the IBI eCommerce Marketplace and more (JioMart, Snapdeal, Amazon.com, eBay, Etsy, Shopify, WooCommerce as preview channels, plus a no-code custom-channel builder), with dynamic SEO, compliance checks, a 0–100 listing score, exact upload sheets and a performance feedback loop.
 
@@ -52,14 +52,21 @@ Without any of this the site still works fully in local mode (rule engine, expor
 
 Local use is unlimited on every plan. Limits live in `functions/api/_lib.js` (enforced) and `app/app.js` (displayed) — change both.
 
-## Caching
+## Caching — read before changing a version number
 
-Filenames are not content-hashed and Cloudflare Pages serves static assets with
-`max-age=14400`; a `Cache-Control` line in `_headers` is **ignored for assets**. So
-`functions/_middleware.js` sets `no-cache` on `/app/*.{js,css,webmanifest}` and the app
-document — revalidate every load, a few bytes per 304 — or a returning visitor runs a
-fresh `index.html` against stale modules after a release. The service worker is
-cache-first, so `CACHE_NAME` must move every release too.
+Filenames are not content-hashed, and **Cloudflare Pages serves static assets with
+`max-age=14400` and will not let you change it** — neither a `Cache-Control` line in
+`_headers` nor one set in `functions/_middleware.js` survives (measured: every other
+header set in that same middleware block is applied, Cache-Control is not, even on an
+edge MISS). Do not spend time on it again.
+
+What keeps a release consistent is the **service worker**: bumping `CACHE_NAME`
+re-precaches the whole shell with `{cache:'reload'}`, which bypasses the HTTP cache and
+swaps every module together. So the `CACHE_NAME` bump is not optional — skip it and a
+returning visitor can run a fresh `index.html` against up to four hours of stale
+modules (the About line then reads "App v1.1.0 · Backend v1.1.3 (differs)", which is
+exactly how this was found). The `_headers` no-cache lines for `sw.js` and the manifest
+are inert for the same reason; browsers revalidate a service-worker script anyway.
 
 ## Releasing
 
