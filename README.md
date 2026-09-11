@@ -1,4 +1,4 @@
-# IBI Product Listings Master v1.1.4
+# IBI Product Listings Master v1.1.6
 
 **List once, sell everywhere.** A SaaS web app by India Business International: one master product record in, marketplace-ready listings out for Amazon India, Amazon Bazaar, Flipkart, Shopsy, Meesho, ShopClues, the IBI eCommerce Marketplace and more (JioMart, Snapdeal, Amazon.com, eBay, Etsy, Shopify, WooCommerce as preview channels, plus a no-code custom-channel builder), with dynamic SEO, compliance checks, a 0–100 listing score, exact upload sheets and a performance feedback loop.
 
@@ -87,3 +87,7 @@ invents a feature. When an AI engine is available the retrieved articles are sen
 grounded, with an explicit instruction to refuse anything the articles do not contain; a failure
 there silently leaves the knowledge-base answer standing. `?help=1` opens the assistant,
 `?help=<article-id>` opens it on that answer — send a seller that link instead of typing the answer.
+
+Header controls follow the chat-widget convention: **⌄ minimise** hides the panel and keeps the
+conversation (the launcher then shows how many answers are waiting), **⟲ start again** clears it and
+stays open, **✕ close** ends the chat. Escape minimises, it does not discard.

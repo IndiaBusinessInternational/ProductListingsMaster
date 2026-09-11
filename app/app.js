@@ -1,4 +1,4 @@
-/* IBI Product Listings Master — application (v1.1.4)
+/* IBI Product Listings Master — application (v1.1.6)
  * Local-first SPA. Every control is wired through data-act="<name>" → A.<name>; tests/audit_actions.mjs
  * fails the build if a data-act names an action that does not exist.
  */
@@ -386,7 +386,10 @@ function helpMount() {
 function paintHelp() {
   const root = $('#helpRoot'); if (!root) return;
   if (!HELP.open) {
-    root.innerHTML = `<button class="help-fab" data-act="helpOpen" title="Help — how to use Listings Master" aria-label="Open help">${HELP_ICON}</button>`;
+    /* minimised with a conversation still in it: the launcher says so and how many
+       answers are waiting, so the chat is never silently lost behind the bubble */
+    const n = HELP.msgs.filter(m => m.role === 'bot' && !m.typing).length;
+    root.innerHTML = `<button class="help-fab" data-act="helpOpen" title="${n ? `Back to your help chat — ${n} answer${n > 1 ? 's' : ''}` : 'Help — how to use Listings Master'}" aria-label="${n ? 'Back to your help chat' : 'Open help'}">${HELP_ICON}${n ? `<span class="pip">${n}</span>` : ''}</button>`;
     return;
   }
   const body = HELP.msgs.length
@@ -396,7 +399,7 @@ function paintHelp() {
     : `<div class="help-greet">Ask me anything about using Listings Master — how to import your sheet, what Amazon allows in a title, why Meesho is different, what the score means. I answer from the built-in help, so I work offline too.</div>
        <div class="help-sugg">${startersFor(S.route.name).map(s => `<button data-act="helpStarter" data-q="${esc(s.q)}">${esc(s.q)}</button>`).join('')}</div>`;
   root.innerHTML = `<div class="help-panel" role="dialog" aria-label="Help assistant">
-    <div class="hh"><div style="flex:1;min-width:0"><b>Help</b><div class="sub">Listings Master · answers from the built-in guide</div></div>${HELP.msgs.length ? '<button class="iconbtn" data-act="helpClear" title="Start again" aria-label="Start again">⟲</button>' : ''}<button class="iconbtn" data-act="helpClose" title="Close" aria-label="Close help">✕</button></div>
+    <div class="hh"><div style="flex:1;min-width:0"><b>Help</b><div class="sub">Listings Master · answers from the built-in guide</div></div>${HELP.msgs.length ? '<button class="iconbtn" data-act="helpClear" title="Start again — clear this chat and keep the panel open" aria-label="Start again">⟲</button>' : ''}<button class="iconbtn" data-act="helpMin" title="Minimise — keep this chat and come back to it" aria-label="Minimise help"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button><button class="iconbtn" data-act="helpClose" title="Close — end this chat" aria-label="Close help">✕</button></div>
     <div class="hb" id="helpBody">${body}</div>
     <div class="hf"><textarea id="helpInput" rows="1" placeholder="Ask a question…" aria-label="Ask a question"></textarea><button class="btn primary" data-act="helpSend" ${HELP.busy ? 'disabled' : ''}>Ask</button></div>
   </div>`;
@@ -522,7 +525,11 @@ const A = {
   goSync() { go('account'); },
   goAccount() { go('account'); },
   helpOpen() { HELP.open = true; paintHelp(); },
-  helpClose() { HELP.open = false; paintHelp(); },
+  /* Minimise and Close both hide the panel; the difference is what survives.
+     Minimise keeps the conversation (the launcher then carries a count), Close ends
+     it — the widget convention, and the reason Escape minimises rather than closes. */
+  helpMin() { HELP.open = false; paintHelp(); },
+  helpClose() { HELP.open = false; HELP.msgs = []; paintHelp(); },
   helpClear() { HELP.msgs = []; paintHelp(); },
   async helpSend() { const i = $('#helpInput'); if (!i) return; const q = i.value; i.value = ''; if (!clean0(q)) { toast('Type a question first'); return; } await helpRun(q); },
   async helpStarter(e, el) { await helpRun(el.dataset.q); },
@@ -598,9 +605,11 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('change', e => { const el = e.target.closest('[data-act]'); if (!el || !el.matches('input[type=checkbox], select')) return; const fn = A[el.dataset.act]; if (!fn) { toast('This control is not wired: ' + el.dataset.act, 'err'); return; } fn.call(A, e, el); });
 document.addEventListener('keydown', e => {
-  if (e.target.matches('#helpInput')) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); A.helpSend(); } return; }
-  if (e.key === 'Escape' && HELP.open && !$('#modalRoot').firstChild) { A.helpClose(); return; }
-  if (e.key === 'Enter' && e.target.matches('#imgUrl')) { e.preventDefault(); A.imgAdd(); } if (e.key === 'Enter' && e.target.matches('#seedInput')) { e.preventDefault(); const b = $('[data-act=fetchSuggest]'); b && b.click(); } if (e.key === 'Enter' && e.target.closest('#authForm') && e.target.tagName !== 'BUTTON') { e.preventDefault(); A.authSubmit(e, $('[data-act=authSubmit]')); } });
+  const t = e.target, isEl = t && typeof t.matches === 'function'; // a keydown can target the document itself
+  if (isEl && t.matches('#helpInput')) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); A.helpSend(); } return; }
+  if (e.key === 'Escape' && HELP.open && !$('#modalRoot').firstChild) { A.helpMin(); return; }
+  if (!isEl) return;
+  if (e.key === 'Enter' && t.matches('#imgUrl')) { e.preventDefault(); A.imgAdd(); } if (e.key === 'Enter' && t.matches('#seedInput')) { e.preventDefault(); const b = $('[data-act=fetchSuggest]'); b && b.click(); } if (e.key === 'Enter' && t.closest('#authForm') && t.tagName !== 'BUTTON') { e.preventDefault(); A.authSubmit(e, $('[data-act=authSubmit]')); } });
 $('#globalSearch').addEventListener('input', debounce(e => { S.q = e.target.value; if (S.route.name !== 'products') go('products'); else render(); }, 250));
 document.addEventListener('input', e => {
   if (e.target.id === 'prodSearch') { S.q = e.target.value; debouncedProducts(); }
