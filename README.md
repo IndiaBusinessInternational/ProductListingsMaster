@@ -1,4 +1,4 @@
-# IBI Product Listings Master v1.1.2
+# IBI Product Listings Master v1.1.3
 
 **List once, sell everywhere.** A SaaS web app by India Business International: one master product record in, marketplace-ready listings out for Amazon India, Amazon Bazaar, Flipkart, Shopsy, Meesho, ShopClues, the IBI eCommerce Marketplace and more (JioMart, Snapdeal, Amazon.com, eBay, Etsy, Shopify, WooCommerce as preview channels, plus a no-code custom-channel builder), with dynamic SEO, compliance checks, a 0–100 listing score, exact upload sheets and a performance feedback loop.
 
@@ -51,6 +51,15 @@ Without any of this the site still works fully in local mode (rule engine, expor
 | Business | ₹3,999 | 25,000 | 2,500 | unlimited | 10 |
 
 Local use is unlimited on every plan. Limits live in `functions/api/_lib.js` (enforced) and `app/app.js` (displayed) — change both.
+
+## Caching
+
+Filenames are not content-hashed and Cloudflare Pages serves static assets with
+`max-age=14400`; a `Cache-Control` line in `_headers` is **ignored for assets**. So
+`functions/_middleware.js` sets `no-cache` on `/app/*.{js,css,webmanifest}` and the app
+document — revalidate every load, a few bytes per 304 — or a returning visitor runs a
+fresh `index.html` against stale modules after a release. The service worker is
+cache-first, so `CACHE_NAME` must move every release too.
 
 ## Releasing
 
