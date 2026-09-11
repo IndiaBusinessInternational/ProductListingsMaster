@@ -1,4 +1,4 @@
-# IBI Product Listings Master v1.1.7
+# IBI Product Listings Master v1.2.1
 
 **List once, sell everywhere.** A SaaS web app by India Business International: one master product record in, marketplace-ready listings out for Amazon India, Amazon Bazaar, Flipkart, Shopsy, Meesho, ShopClues, the IBI eCommerce Marketplace and more (JioMart, Snapdeal, Amazon.com, eBay, Etsy, Shopify, WooCommerce as preview channels, plus a no-code custom-channel builder), with dynamic SEO, compliance checks, a 0–100 listing score, exact upload sheets and a performance feedback loop.
 
@@ -51,6 +51,30 @@ Without any of this the site still works fully in local mode (rule engine, expor
 | Business | ₹3,999 | 25,000 | 2,500 | unlimited | 10 |
 
 Local use is unlimited on every plan. Limits live in `functions/api/_lib.js` (enforced) and `app/app.js` (displayed) — change both.
+
+## Product data rules (v1.2)
+
+- **Category / Sub-category** are dependent selects from `app/taxonomy.js` — department
+  names read off Amazon.in on 11 Sep 2026, sub-categories at the product-type level.
+  Both offer "Other" so an uncovered niche is never a dead end.
+- **SKU** is derived (`deriveSku`) as `BRAND-TYPE-MATERIAL-SIZE-COLOUR` and keeps
+  tracking the fields until the seller types their own; then it is theirs for good.
+  Variant codes replace the parent colour and size rather than stacking them.
+- **HSN** is suggested from the sub-category, shifted by material (aluminium cookware
+  7615, steel 7323, silver jewellery 7113). Four digits only — the 6/8-digit tail turns
+  on facts only the seller has. It re-derives until typed over, and says on screen that
+  it must be confirmed.
+- **GST**: GST 2.0, in force 22 Sep 2025. 12% and the general 28% are gone, 40% added,
+  3% and 0.25% retained; 28% survives only for tobacco and pan masala. A product still
+  carrying 12% is an ERROR with the reason. Slabs live in `taxonomy.js GST_RATES` and
+  `engine.js GST_VALID` — change both.
+- **MRP** is suggested at 1.5 × selling price, rounded the way a printed MRP looks, and
+  **only into an empty field**. ⚠ MRP is a Legal Metrology declaration: it must be the
+  price printed on the pack, so the suggestion is labelled and never overwrites.
+- **Stock** can be read live from IBI Stock Availability — ⚠ **IBI-only**. Gated by
+  `isIbiWorkspace()` (brand iINTELLIGENCEi / India Business International) *and* a
+  Settings switch. A paying customer must never see or call it. An ambiguous name opens
+  a picker instead of guessing; one word in common is never a match.
 
 ## Caching — read before changing a version number
 

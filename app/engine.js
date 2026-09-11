@@ -6,7 +6,12 @@
  */
 import { CHANNEL_MAP, exportSpec } from './channels.js';
 
-export const ENGINE_VERSION = '1.0.0';
+export const ENGINE_VERSION = '1.1.0';
+
+/* GST 2.0 (56th Council, in force 22 Sep 2025): 0 / 5 / 18 / 40, with 3% and 0.25%
+ * retained for jewellery and rough diamonds and 28% surviving only for tobacco and pan
+ * masala. 12% no longer exists — see app/taxonomy.js GST_RATES for the labelled list. */
+export const GST_VALID = [0, 0.25, 3, 5, 18, 28, 40];
 
 /* ───────────────────────── vocabularies ───────────────────────── */
 export const STOP_WORDS = new Set(['a', 'an', 'the', 'of', 'for', 'with', 'and', 'in', 'to', 'on', 'by', 'or', 'from', 'at', 'is', 'as', 'per', 'x', '&', '-', '|', '·']);
@@ -108,6 +113,54 @@ export function blankProduct() {
     consumerCare: '', mrp: '', sellingPrice: '', gst: '', hsn: '', gtin: '', gtinType: 'EAN', stock: '', images: [], keywords: [], notes: '', variants: [],
     createdAt: '', updatedAt: '',
   };
+}
+
+/* ── SKU ──────────────────────────────────────────────────────────────────────
+ * Derived from what the seller already typed, so nobody types a code twice, and every
+ * marketplace sheet gets the identifier it demands. Shape:
+ *   BRAND-TYPE-MATERIAL-SIZE-COLOUR   e.g. IINT-STRN-ALU-27CM-SIL
+ * Readable on a shelf and on a packing slip, which is the whole point of a seller SKU;
+ * marketplaces impose no format. Derivation is a SUGGESTION — the field stays editable
+ * and, once edited by hand, is never overwritten (see skuManual in the form).
+ */
+const SKU_STOP = new Set(['with', 'and', 'for', 'the', 'of', 'set', 'pack', 'new', 'premium', 'quality', 'heavy', 'light']);
+function skuPart(s, len) {
+  const w = String(s || '').toUpperCase().replace(/[^A-Z0-9 ]+/g, ' ').split(/\s+/).filter(x => x && !SKU_STOP.has(x.toLowerCase()));
+  if (!w.length) return '';
+  if (w.length === 1) return w[0].replace(/[AEIOU]/g, m => w[0].indexOf(m) === 0 ? m : '').slice(0, len) || w[0].slice(0, len);
+  return w.map(x => x[0]).join('').slice(0, len);
+}
+const skuSize = p => {
+  const s = clean(p.size);
+  if (s) return s.toUpperCase().replace(/[^A-Z0-9]+/g, '').slice(0, 6);
+  const d = [p.lengthCm, p.breadthCm, p.heightCm].filter(v => v !== '' && v != null);
+  return d.length ? `${Math.round(d[0])}CM` : '';
+};
+export function deriveSku(product, { suffix = '' } = {}) {
+  const p = normalizeProduct(product);
+  const brand = /^(generic|unbranded|no brand)$/i.test(p.brand) ? '' : p.brand;
+  const parts = [
+    skuPart(brand, 4),
+    skuPart(p.productType, 4) || skuPart(p.name, 4),
+    skuPart(p.material, 3),
+    skuSize(p),
+    skuPart(p.colour, 3),
+    p.packSize > 1 ? `P${p.packSize}` : '',
+  ].filter(Boolean);
+  if (!parts.length) return '';
+  return (parts.join('-') + (suffix ? '-' + suffix : '')).replace(/-+/g, '-').slice(0, 40);
+}
+/* Variant SKUs hang off the parent so a sheet row is traceable back to the product. */
+export function deriveVariantSku(product, variant, i) {
+  /* the variant's own colour and size replace the parent's, they do not stack —
+     a parent SKU ending in SLV must not become …-SLV-SLV-22CM */
+  const base = deriveSku({ ...normalizeProduct(product), colour: '', size: '', lengthCm: '', breadthCm: '', heightCm: '' }) || 'SKU';
+  const v = variant || {};
+  const tail = [
+    String(v.size || '').toUpperCase().replace(/[^A-Z0-9]+/g, '').slice(0, 6),
+    skuPart(v.colour, 3),
+  ].filter(Boolean).join('-');
+  return (tail ? `${base}-${tail}` : `${base}-${String(i + 1).padStart(2, '0')}`).slice(0, 44);
 }
 
 export function normalizeProduct(p) {
@@ -467,7 +520,10 @@ export function validateProduct(product, ch) {
   if (ch.price.maxSell && p.sellingPrice !== '' && p.sellingPrice > ch.price.maxSell) push('warn', `${ch.price.maxSellNote || `Above ₹${ch.price.maxSell}`}`, 'sellingPrice');
   const comp = ch.compliance || [];
   if (comp.includes('hsn') && !/^\d{4}(\d{2})?(\d{2})?$/.test(p.hsn)) push('error', 'HSN must be 4, 6 or 8 digits', 'hsn');
-  if (comp.includes('gstRate') && ![0, 5, 12, 18, 28, 3, 0.25].includes(p.gst)) push('error', 'GST % must be 0, 3, 5, 12, 18 or 28', 'gst');
+  if (comp.includes('gstRate')) { // GST 2.0 from 22 Sep 2025: 12% and the general 28% are gone, 40% added
+    if (p.gst === 12) push('error', 'GST 12% was withdrawn on 22 Sep 2025 — those goods moved to 5% or 18%', 'gst');
+    else if (!GST_VALID.includes(p.gst)) push('error', 'GST % must be 0, 0.25, 3, 5, 18 or 40 (28% only for tobacco and pan masala)', 'gst');
+  }
   if (comp.includes('gtin') && !p.gtin) push('warn', 'No GTIN/EAN — apply for a GTIN exemption or add the barcode', 'gtin');
   if (comp.includes('manufacturer') && !p.manufacturerName) push('error', 'Manufacturer / packer name is a Legal Metrology declaration', 'manufacturerName');
   if (comp.includes('manufacturer') && p.manufacturerName && !p.manufacturerAddress) push('warn', 'Manufacturer address missing (Legal Metrology needs the full address)', 'manufacturerAddress');
@@ -669,7 +725,7 @@ export const SAMPLE_PRODUCT = {
   sku: 'IBI-STRN-27', brand: 'iINTELLIGENCEi', productType: 'Food Strainer Colander', category: 'Kitchen', subcategory: 'Kitchen Tools', material: 'Aluminium', colour: 'Silver', size: '27 cm',
   keyFeatures: ['Fine mesh drains rice, pasta and vegetables fast', 'Riveted handle stays cool on the stove', 'Rust-free food-grade aluminium'], useCases: ['rice washing', 'pasta draining', 'vegetable rinsing'], audience: 'home kitchens',
   lengthCm: 27, breadthCm: 27, heightCm: 7.5, weightG: 198, netQuantity: '1 N', packSize: 1, certifications: ['BIS'], warranty: '6 months manufacturing warranty', care: 'Rinse and dry after use; dishwasher safe',
-  countryOfOrigin: 'India', manufacturerName: 'CPM Metals', manufacturerAddress: 'Coimbatore, Tamil Nadu 641001', consumerCare: '+91 8939414799 / indiabusinessinternational@gmail.com', mrp: 499, sellingPrice: 349, gst: 12, hsn: '761510', stock: 40,
+  countryOfOrigin: 'India', manufacturerName: 'CPM Metals', manufacturerAddress: 'Coimbatore, Tamil Nadu 641001', consumerCare: '+91 8939414799 / indiabusinessinternational@gmail.com', mrp: 499, sellingPrice: 349, gst: 5, hsn: '761510', stock: 40,
   images: [{ url: 'https://www.indiabusinessinternational.online/images/strainer-1.jpg', alt: 'Aluminium food strainer front' }, { url: 'https://www.indiabusinessinternational.online/images/strainer-2.jpg', alt: 'Strainer with rice' }],
   keywords: ['rice chalni', 'strainer for kitchen', 'colander steel', 'chana strainer', 'pasta strainer'], notes: 'Made by a BIS-licensed foundry in Coimbatore; the mesh is pressed, not welded, so there are no rough edges.',
   variants: [],

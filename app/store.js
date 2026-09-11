@@ -1,5 +1,5 @@
 /* IBI Product Listings Master — storage (IndexedDB, local-first) + cloud sync client */
-export const APP_VERSION = '1.1.7';
+export const APP_VERSION = '1.2.1';
 const DB_NAME = 'plm', DB_VER = 1;
 const STORES = ['products', 'listings', 'perf', 'channels', 'settings', 'kwcache'];
 let dbp = null;
@@ -39,6 +39,7 @@ export const DEFAULT_SETTINGS = {
   business: { brand: '', manufacturerName: '', manufacturerAddress: '', packerName: '', packerAddress: '', consumerCare: '', countryOfOrigin: 'India', gst: 18, currency: 'INR' },
   enabledChannels: ['amazon_in', 'amazon_bazaar', 'flipkart', 'shopsy', 'meesho', 'shopclues', 'ibi'],
   ai: { mode: 'server', geminiKeySaved: false },
+  ibiStock: true, // IBI-only live stock link; ignored unless the workspace is IBI's own
   updatedAt: '',
 };
 export async function loadSettings() { const s = await db.get('settings', 'app'); return deepMerge(structuredClone(DEFAULT_SETTINGS), s || {}); }

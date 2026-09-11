@@ -1,6 +1,6 @@
 /* IBI Product Listings Master — service worker. CACHE_NAME moves with APP_VERSION every release. */
-const CACHE_NAME = 'plm-v1.1.7';
-const SHELL = ['./', './index.html', './app.css', './app.js', './channels.js', './engine.js', './store.js', './exporter.js', './ai.js', './help.js', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png'];
+const CACHE_NAME = 'plm-v1.2.1';
+const SHELL = ['./', './index.html', './app.css', './app.js', './channels.js', './engine.js', './store.js', './exporter.js', './ai.js', './help.js', './taxonomy.js', './ibistock.js', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE_NAME).then(c => Promise.all(SHELL.map(u => c.add(new Request(u, { cache: 'reload' })).catch(() => null)))).then(() => self.skipWaiting()));
 });

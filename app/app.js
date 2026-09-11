@@ -1,4 +1,4 @@
-/* IBI Product Listings Master — application (v1.1.7)
+/* IBI Product Listings Master — application (v1.2.1)
  * Local-first SPA. Every control is wired through data-act="<name>" → A.<name>; tests/audit_actions.mjs
  * fails the build if a data-act names an action that does not exist.
  */
@@ -8,6 +8,8 @@ import { db, uid, now, loadSettings, saveSettings, secrets, exportBackup, import
 import * as X from './exporter.js';
 import { enhance, helpAnswer } from './ai.js';
 import { HELP_ARTICLES, HELP_VERSION, searchHelp, answerFromKb, startersFor, renderHelpText } from './help.js';
+import { CATEGORY_NAMES, subsFor, guessCategory, GST_RATES, suggestHsn, OTHER as TAX_OTHER } from './taxonomy.js';
+import * as IBIStock from './ibistock.js';
 
 export const PLANS = {
   free: { name: 'Free', price: 0, products: 25, ai: 10, custom: 1, seats: 1, blurb: 'Rule-engine listings for every channel, unlimited local products, 25 in cloud sync.' },
@@ -17,6 +19,10 @@ export const PLANS = {
 };
 
 const S = { products: [], listings: [], perf: [], custom: [], settings: null, route: { name: 'dashboard', id: null, sub: null }, suggest: {}, busy: {} };
+/* IBI-only: the live stock link reads India Business International's own sheet, so it is
+   offered only in IBI's workspace and only while the Settings switch is on. */
+let IBI_STOCK = false;
+const refreshIbiStockFlag = () => { IBI_STOCK = !!(S.settings && S.settings.ibiStock !== false && IBIStock.isIbiWorkspace(S.settings)); return IBI_STOCK; };
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -51,6 +57,7 @@ const confirmDlg = (title, text, label = 'Confirm', cls = 'primary') => modal({ 
 /* ───────── data ───────── */
 async function loadAll() {
   S.settings = await loadSettings();
+  refreshIbiStockFlag();
   [S.products, S.listings, S.perf, S.custom] = await Promise.all([db.all('products'), db.all('listings'), db.all('perf'), db.all('channels')]);
   S.products = S.products.filter(p => !p.deleted).sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
   S.listings = S.listings.filter(l => !l.deleted); S.perf = S.perf.filter(r => !r.deleted); S.custom = S.custom.filter(c => !c.deleted);
@@ -147,8 +154,8 @@ async function vProducts(r) {
 
 const PRODUCT_FIELDS = [
   { sec: 'Basics', f: [
-    ['sku', 'SKU / style code', 'text', 'Your own code; every marketplace sheet needs one'], ['brand', 'Brand', 'text', '“Generic” if unbranded'], ['productType', 'Product type (what it is)', 'text', 'e.g. Food Strainer Colander, Cotton Kurti, Bluetooth Speaker', 1],
-    ['category', 'Category', 'text', 'Kitchen, Fashion, Jewellery, Grocery…'], ['subcategory', 'Sub-category', 'text', ''], ['audience', 'Audience', 'text', 'women, men, kids, home kitchens…'],
+    ['sku', 'SKU / style code', 'sku', 'Built from the brand, product type, material, size and colour. Edit it and yours is kept.'], ['brand', 'Brand', 'text', '“Generic” if unbranded'], ['productType', 'Product type (what it is)', 'text', 'e.g. Food Strainer Colander, Cotton Kurti, Bluetooth Speaker', 1],
+    ['category', 'Category', 'category', 'Amazon India’s departments'], ['subcategory', 'Sub-category', 'subcategory', 'Narrows with the category'], ['audience', 'Audience', 'text', 'women, men, kids, home kitchens…'],
   ] },
   { sec: 'What makes it good', f: [
     ['keyFeatures', 'Key features — one per line', 'textarea', 'Plain facts: “Fine mesh drains rice fast”, “Riveted handle stays cool”. These become bullets and the title\'s key-feature slot.', 1],
@@ -159,7 +166,7 @@ const PRODUCT_FIELDS = [
     ['certifications', 'Certifications — comma separated', 'text', 'BIS, ISI, FSSAI, ISO…'], ['warranty', 'Warranty', 'text', '6 months manufacturing warranty (omitted on Meesho)'], ['care', 'Care instructions', 'text', 'Rinse and dry after use…'],
   ] },
   { sec: 'Pricing, tax & identity', f: [
-    ['mrp', 'MRP (₹)', 'number', 'Printed on the pack'], ['sellingPrice', 'Selling price (₹)', 'number', ''], ['gst', 'GST %', 'select:0,3,5,12,18,28', ''], ['hsn', 'HSN code', 'text', '4, 6 or 8 digits'], ['gtin', 'GTIN / EAN / UPC', 'text', 'Barcode, or leave blank and apply for an exemption'], ['stock', 'Stock (units)', 'number', ''],
+    ['sellingPrice', 'Selling price (₹)', 'number', 'What the customer pays'], ['mrp', 'MRP (₹)', 'mrp', 'Must be the price PRINTED ON THE PACK — a suggestion is filled in, change it to the real one'], ['gst', 'GST %', 'gst', 'GST 2.0, in force 22 Sep 2025'], ['hsn', 'HSN code', 'hsn', '4, 6 or 8 digits — confirm the suggestion with your accountant'], ['gtin', 'GTIN / EAN / UPC', 'text', 'Barcode, or leave blank and apply for an exemption'], ['stock', 'Stock (units)', 'stock', ''],
   ] },
   { sec: 'Package & logistics', f: [
     ['lengthCm', 'Length (cm)', 'number', ''], ['breadthCm', 'Breadth (cm)', 'number', ''], ['heightCm', 'Height (cm)', 'number', ''], ['weightG', 'Weight (g)', 'number', 'Packed weight'], ['netQuantity', 'Net quantity', 'text', '1 N, 500 g, 2 pcs — Legal Metrology'], ['packSize', 'Pack size (units per listing)', 'number', '1 unless it is a multi-pack'],
@@ -168,10 +175,32 @@ const PRODUCT_FIELDS = [
     ['countryOfOrigin', 'Country of origin', 'text', ''], ['manufacturerName', 'Manufacturer / packer name', 'text', ''], ['manufacturerAddress', 'Manufacturer address', 'text', 'Full postal address'], ['packerName', 'Packer name (if different)', 'text', ''], ['packerAddress', 'Packer address', 'text', ''], ['importerName', 'Importer name (imported goods)', 'text', ''], ['importerAddress', 'Importer address', 'text', ''], ['consumerCare', 'Consumer care contact', 'text', 'Phone / email printed on the pack'],
   ] },
 ];
-function fieldHtml([k, label, type, hint, req], v) {
+/* A select whose value may also be free text: the taxonomy covers most sellers, and the
+   "Other" option keeps the one it does not cover from being stuck. */
+function selectOther(name, options, val, placeholder) {
+  const known = options.some(o => o.toLowerCase() === String(val || '').trim().toLowerCase());
+  const isOther = !!val && !known;
+  return `<select class="input" name="${name}" data-act="taxoChange" data-id="${name}">
+      <option value="" ${!val ? 'selected' : ''}>${esc(placeholder)}</option>
+      ${options.map(o => `<option value="${esc(o)}" ${known && o.toLowerCase() === String(val).trim().toLowerCase() ? 'selected' : ''}>${esc(o)}</option>`).join('')}
+      <option value="${TAX_OTHER}" ${isOther ? 'selected' : ''}>Other — type my own…</option>
+    </select>
+    <input class="input" name="${name}_other" placeholder="Type your ${name === 'category' ? 'category' : 'sub-category'}" value="${esc(isOther ? val : '')}" ${isOther ? '' : 'hidden'} style="margin-top:6px">`;
+}
+function withBtn(ctrl, act, label, title) {
+  return `<div class="split" style="flex-wrap:nowrap;gap:6px;align-items:stretch"><div style="flex:1;min-width:0">${ctrl}</div><button class="btn sm" data-act="${act}" title="${esc(title)}" style="flex:0 0 auto">${esc(label)}</button></div>`;
+}
+function fieldHtml([k, label, type, hint, req], v, p) {
   const val = Array.isArray(v) ? (type === 'textarea' ? v.join('\n') : v.join(', ')) : (v == null ? '' : v);
   let ctrl;
-  if (type === 'textarea') ctrl = `<textarea class="input auto" name="${k}" rows="2">${esc(val)}</textarea>`;
+  if (type === 'category') ctrl = selectOther('category', CATEGORY_NAMES, val, 'Choose a category…');
+  else if (type === 'subcategory') ctrl = selectOther('subcategory', subsFor((p || {}).category), val, (p || {}).category ? 'Choose a sub-category…' : 'Pick a category first');
+  else if (type === 'gst') ctrl = `<select class="input" name="gst"><option value="">Not set</option>${GST_RATES.map(r => `<option value="${r.v}" ${String(val) !== '' && Number(val) === r.v ? 'selected' : ''}>${esc(r.label)}</option>`).join('')}</select>`;
+  else if (type === 'sku') ctrl = withBtn(`<input class="input mono" name="sku" value="${esc(val)}" autocomplete="off">`, 'genSku', 'Build', 'Build the SKU from the brand, product type, material, size and colour');
+  else if (type === 'hsn') ctrl = withBtn(`<input class="input mono" name="hsn" value="${esc(val)}" inputmode="numeric" autocomplete="off">`, 'genHsn', 'Suggest', 'Suggest an HSN heading from the sub-category and material');
+  else if (type === 'mrp') ctrl = withBtn(`<input class="input" name="mrp" type="number" step="any" inputmode="decimal" value="${esc(val)}">`, 'suggestMrp', '1.5×', 'Fill 1.5 × the selling price as a starting figure');
+  else if (type === 'stock') ctrl = IBI_STOCK ? withBtn(`<input class="input" name="stock" type="number" step="any" inputmode="numeric" value="${esc(val)}">`, 'fetchStockUnits', 'From IBI Stock', 'Read packed + loose from IBI Stock Availability for this product name') : `<input class="input" name="stock" type="number" step="any" inputmode="numeric" value="${esc(val)}">`;
+  else if (type === 'textarea') ctrl = `<textarea class="input auto" name="${k}" rows="2">${esc(val)}</textarea>`;
   else if (type.startsWith('select:')) ctrl = `<select class="input" name="${k}">${type.slice(7).split(',').map(o => `<option value="${o}" ${String(val) === o ? 'selected' : ''}>${o}${k === 'gst' ? '%' : ''}</option>`).join('')}</select>`;
   else ctrl = `<input class="input" name="${k}" type="${type}" ${type === 'number' ? 'step="any" inputmode="decimal"' : ''} value="${esc(val)}" ${req ? 'required' : ''}>`;
   return `<div class="field"><label>${esc(label)}${req ? ' *' : ''}</label>${ctrl}${hint ? `<div class="hint">${esc(hint)}</div>` : ''}</div>`;
@@ -181,19 +210,54 @@ async function vProductEdit(id) {
   const p = isNew ? Object.assign(E.blankProduct(), { id: uid(), images: [], variants: [], ...defaultsFromBusiness() }) : productById(id);
   if (!p) return `<div class="callout err">Product not found. <a href="#/products">Back</a></div>`;
   S.draft = structuredClone(p);
+  S.skuManual = !isNew && !!String(p.sku || '').trim(); // a saved SKU is the seller's, leave it alone
+  S.hsnManual = !isNew && !!String(p.hsn || '').trim();
+  refreshIbiStockFlag();
   const img = (i, n) => `<div class="im" data-idx="${n}">${i.url || i.data ? `<img src="${esc(i.url || i.data)}" alt="">` : 'no image'}<span class="n">${n + 1}${i.data ? ' local' : ''}</span><button class="x" data-act="imgRemove" data-idx="${n}" title="Remove">✕</button></div>`;
   return pageHead(isNew ? 'New product' : esc(p.productType || 'Edit product'), 'One record feeds every channel. Fields marked * are required; the rest raise your score.', `<button class="btn" data-act="cancelEdit">Cancel</button>${isNew ? '' : '<button class="btn" data-act="duplicateProduct">Duplicate</button><button class="btn danger" data-act="deleteProduct">Delete</button>'}<button class="btn" data-act="saveProduct">Save</button><button class="btn primary" data-act="saveAndStudio">Save &amp; open Studio →</button>`)
-    + `<form id="productForm" onsubmit="return false">` + PRODUCT_FIELDS.map(sec => `<fieldset class="sec"><legend>${esc(sec.sec)}</legend>${sec.sec.startsWith('Compliance') ? '<div style="margin-bottom:10px"><button class="btn sm" data-act="applyBusinessDefaults">Fill from business defaults</button></div>' : ''}<div class="frow">${sec.f.map(f => fieldHtml(f, p[f[0]])).join('')}</div></fieldset>`).join('')
+    + `<form id="productForm" onsubmit="return false">` + PRODUCT_FIELDS.map(sec => `<fieldset class="sec"><legend>${esc(sec.sec)}</legend>${sec.sec.startsWith('Compliance') ? '<div style="margin-bottom:10px"><button class="btn sm" data-act="applyBusinessDefaults">Fill from business defaults</button></div>' : ''}<div class="frow">${sec.f.map(f => fieldHtml(f, p[f[0]], p)).join('')}</div></fieldset>`).join('')
     + `<fieldset class="sec"><legend>Images</legend><div class="hint" style="margin-bottom:8px">Marketplace sheets need public image URLs (Google Drive “anyone with link”, your website, a CDN). Order is the display order — the first is the main photo. Local uploads preview here but are not exported.</div><div class="imgrow" id="imgRow">${(p.images || []).map(img).join('')}</div><div class="split" style="margin-top:10px"><input class="input" id="imgUrl" placeholder="https://… image URL" style="max-width:420px"><button class="btn" data-act="imgAdd">Add URL</button><button class="btn" data-act="imgUpload">Upload for preview</button><button class="btn sm" data-act="imgLeft" title="Move last-selected image earlier">◀ earlier</button><button class="btn sm" data-act="imgRight">later ▶</button></div></fieldset>`
     + `<fieldset class="sec"><legend>Keywords (dynamic SEO)</legend><div class="frow"><div class="field"><label>Seller keywords — comma separated <span class="cnt">${(p.keywords || []).length}</span></label><textarea class="input auto" name="keywords" rows="2">${esc((p.keywords || []).join(', '))}</textarea><div class="hint">Words shoppers actually type: “rice chalni”, “strainer for kitchen”. The engine adds synonyms, and live suggestions when online.</div></div></div><div class="split" style="margin-top:8px"><button class="btn" data-act="liveSuggest">Fetch live search suggestions</button><span class="small muted" id="suggestNote">${cloud.state.suggest ? 'Google + Amazon.in autocomplete, ranked into the keyword pool.' : 'Needs the online service (offline now: synonyms and your keywords still work).'}</span></div><div class="kwlist" id="suggestList" style="margin-top:8px"></div></fieldset>`
     + `<fieldset class="sec"><legend>Variants (colour × size)</legend><div class="hint" style="margin-bottom:8px">Leave empty for a single SKU. Each variant becomes one row in every sheet.</div><div id="varRows">${(p.variants || []).map((v, i) => varRow(v, i)).join('')}</div><button class="btn sm" data-act="varAdd">+ Add variant</button></fieldset></form>`;
 }
 function varRow(v = {}, i) { return `<div class="varrow" data-var="${i}"><input class="input" placeholder="Variant SKU" data-vk="sku" value="${esc(v.sku || '')}"><input class="input" placeholder="Colour" data-vk="colour" value="${esc(v.colour || '')}"><input class="input" placeholder="Size" data-vk="size" value="${esc(v.size || '')}"><input class="input" placeholder="Price" type="number" data-vk="sellingPrice" value="${esc(v.sellingPrice ?? '')}"><input class="input" placeholder="MRP" type="number" data-vk="mrp" value="${esc(v.mrp ?? '')}"><input class="input" placeholder="Stock" type="number" data-vk="stock" value="${esc(v.stock ?? '')}"><button class="btn sm danger" data-act="varRemove" data-idx="${i}">✕</button></div>`; }
+/* MRP suggestion. WARNING: MRP is a Legal Metrology declaration - it must be the figure
+   PRINTED ON THE PACK. 1.5x is a starting number to save typing, rounded the way a
+   printed MRP actually looks. It is filled only into an EMPTY field, never over the
+   seller's own figure. */
+export function mrpFromSelling(sell) {
+  const n = parseFloat(sell); if (!(n > 0)) return '';
+  const raw = n * 1.5;
+  const step = raw >= 500 ? 10 : raw >= 100 ? 5 : 1;
+  return Math.round(raw / step) * step;
+}
+/* Fill what can be derived, only where the seller has left the field empty. */
+function autoFillDerived() {
+  const f = $('#productForm'); if (!f) return;
+  const p = readProductForm(); if (!p) return;
+  if (!S.skuManual) { const sku = E.deriveSku(p); if (sku) f.elements.sku.value = sku; }
+  if (!S.hsnManual) {
+    const g = suggestHsn(p);
+    if (g) {
+      if (f.elements.hsn.value !== g.hsn) {
+        f.elements.hsn.value = g.hsn;
+        const fld = f.elements.hsn.closest('.field'), hint = fld && fld.querySelector('.hint');
+        if (hint) hint.innerHTML = `Suggested <b>${esc(g.hsn)}</b> from ${esc(g.source)}. HSN decides the tax you pay \u2014 confirm it with your accountant.`;
+      }
+      if (g.gst !== '' && !f.elements.gst.value) f.elements.gst.value = String(g.gst);
+    }
+  }
+}
+
 function defaultsFromBusiness() { const b = S.settings.business; return { brand: b.brand, manufacturerName: b.manufacturerName, manufacturerAddress: b.manufacturerAddress, packerName: b.packerName, packerAddress: b.packerAddress, consumerCare: b.consumerCare, countryOfOrigin: b.countryOfOrigin || 'India', gst: b.gst }; }
 function readProductForm() {
   const f = $('#productForm'); if (!f) return null;
   const p = S.draft;
   for (const sec of PRODUCT_FIELDS) for (const [k, , type] of sec.f) { const el = f.elements[k]; if (!el) continue; let v = el.value; if (['keyFeatures'].includes(k)) v = v.split(/\n+/).map(s => s.trim()).filter(Boolean); else if (['useCases', 'certifications'].includes(k)) v = v.split(/[,\n]+/).map(s => s.trim()).filter(Boolean); else if (type === 'number') v = v === '' ? '' : parseFloat(v); p[k] = v; }
+  for (const k of ['category', 'subcategory']) { // a select set to Other takes its value from the box beside it
+    const sel = f.elements[k], other = f.elements[k + '_other'];
+    if (sel) p[k] = sel.value === TAX_OTHER ? clean0(other && other.value) : clean0(sel.value);
+  }
   p.keywords = (f.elements.keywords.value || '').split(/[,\n]+/).map(s => s.trim()).filter(Boolean);
   p.variants = $$('#varRows .varrow').map(r => { const o = {}; $$('[data-vk]', r).forEach(i => { o[i.dataset.vk] = i.type === 'number' ? (i.value === '' ? '' : parseFloat(i.value)) : i.value.trim(); }); return o; }).filter(v => v.sku || v.colour || v.size);
   return p;
@@ -362,7 +426,7 @@ async function vSettings() {
     + `<form id="settingsForm" onsubmit="return false"><fieldset class="sec"><legend>Business defaults</legend><div class="frow"><div class="field"><label>Brand</label><input class="input" name="brand" value="${esc(b.brand)}"></div><div class="field"><label>Manufacturer / packer name</label><input class="input" name="manufacturerName" value="${esc(b.manufacturerName)}"></div><div class="field" style="grid-column:1/-1"><label>Manufacturer address</label><input class="input" name="manufacturerAddress" value="${esc(b.manufacturerAddress)}"></div><div class="field"><label>Packer name (if different)</label><input class="input" name="packerName" value="${esc(b.packerName)}"></div><div class="field"><label>Packer address</label><input class="input" name="packerAddress" value="${esc(b.packerAddress)}"></div><div class="field"><label>Consumer care contact</label><input class="input" name="consumerCare" value="${esc(b.consumerCare)}"></div><div class="field"><label>Country of origin</label><input class="input" name="countryOfOrigin" value="${esc(b.countryOfOrigin)}"></div><div class="field"><label>Default GST %</label><select class="input" name="gst">${[0, 3, 5, 12, 18, 28].map(g => `<option value="${g}" ${Number(b.gst) === g ? 'selected' : ''}>${g}%</option>`).join('')}</select></div></div><div style="margin-top:10px"><button class="btn primary" data-act="saveSettings">Save defaults</button></div></fieldset>
     <fieldset class="sec"><legend>Appearance</legend><div class="frow"><div class="field"><label>Theme</label><select class="input" data-act="setTheme">${['auto', 'light', 'dark'].map(t => `<option value="${t}" ${S.settings.theme === t ? 'selected' : ''}>${t[0].toUpperCase() + t.slice(1)}</option>`).join('')}</select></div><div class="field"><label>Text size</label><select class="input" data-act="setTextSize">${[[1, 'Default'], [1.15, 'Large'], [1.3, 'Extra large'], [1.5, 'Huge'], [1.75, 'Maximum']].map(([v, l]) => `<option value="${v}" ${Number(S.settings.textSize) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div></fieldset>
     <fieldset class="sec"><legend>AI enhancement</legend><div class="frow"><div class="field"><label>Engine</label><select class="input" data-act="setAiMode"><option value="server" ${S.settings.ai.mode === 'server' ? 'selected' : ''}>Listings Master service (plan quota)</option><option value="byok" ${S.settings.ai.mode === 'byok' ? 'selected' : ''}>My own Gemini API key (this device only)</option></select><div class="hint">${cloud.state.available ? (cloud.state.ai ? 'Server AI is configured.' : 'Server AI is not configured on this deployment.') : 'Offline: only your own key can work right now.'}</div></div><div class="field"><label>Gemini API key <span class="cnt">${hasKey ? '✓ saved' : 'not set'}</span></label><input class="input" type="password" id="geminiKey" autocomplete="off" placeholder="${hasKey ? 'Saved on this device — paste a new one to replace' : 'AIza…'}"><div class="hint">Stored only in this browser; never synced or backed up. Get one at aistudio.google.com.</div></div></div><div class="split" style="margin-top:8px"><button class="btn" data-act="saveGeminiKey">Save key</button>${hasKey ? '<button class="btn danger" data-act="removeGeminiKey">Remove key</button>' : ''}</div></fieldset>
-    <fieldset class="sec"><legend>Behaviour</legend><label class="check"><input type="checkbox" data-act="toggleLiveSuggest" ${S.settings.liveSuggest ? 'checked' : ''}><span class="switch"></span> Fetch live search suggestions automatically when opening the Studio (online only)</label><label class="check" style="margin-top:8px"><input type="checkbox" data-act="toggleAutoSync" ${S.settings.autoSync ? 'checked' : ''}><span class="switch"></span> Auto-sync to the cloud after changes (when signed in)</label></fieldset>
+    <fieldset class="sec"><legend>Behaviour</legend>${IBIStock.isIbiWorkspace(S.settings) ? `<label class="check" style="margin-bottom:8px"><input type="checkbox" name="ibiStockOff" ${S.settings.ibiStock === false ? 'checked' : ''}><span class="switch"></span> Turn OFF the IBI Stock Availability link</label><div class="hint" style="margin:-4px 0 10px 52px">Internal to India Business International: the Stock field can read packed + loose straight from stock.indiabusinessinternational.online. Only this workspace sees it.</div>` : ''}<label class="check"><input type="checkbox" data-act="toggleLiveSuggest" ${S.settings.liveSuggest ? 'checked' : ''}><span class="switch"></span> Fetch live search suggestions automatically when opening the Studio (online only)</label><label class="check" style="margin-top:8px"><input type="checkbox" data-act="toggleAutoSync" ${S.settings.autoSync ? 'checked' : ''}><span class="switch"></span> Auto-sync to the cloud after changes (when signed in)</label></fieldset>
     <fieldset class="sec"><legend>Data</legend><div class="split"><button class="btn" data-act="backupExport">Download backup</button><button class="btn" data-act="backupImport">Restore backup</button><button class="btn danger" data-act="resetLocal">Reset this device</button></div><p class="small muted" style="margin-top:8px">Reset wipes products, listings and settings from this browser only. Cloud copies are untouched.</p></fieldset></form>`;
 }
 
@@ -454,6 +518,75 @@ const A = {
   async duplicateProduct() { const p = readProductForm(); const c = structuredClone(p); c.id = uid(); c.sku = (c.sku || 'SKU') + '-COPY'; c.createdAt = ''; await saveProduct(c); toast('Duplicated', 'ok'); go('products/' + c.id); },
   async deleteProduct() { if (!await confirmDlg('Delete product', 'This removes the product and all its channel listings from this workspace.', 'Delete', 'danger')) return; await deleteProduct(S.draft.id); toast('Deleted'); go('products'); },
   applyBusinessDefaults() { const d = defaultsFromBusiness(); const f = $('#productForm'); for (const [k, v] of Object.entries(d)) if (f.elements[k] && !f.elements[k].value) f.elements[k].value = v; toast('Defaults filled where empty', 'ok'); },
+  /* Category → Sub-category: picking a category repopulates the sub-category list, and
+     "Other" reveals a text box so an uncovered niche is never a dead end. */
+  taxoChange(e, el) {
+    const f = $('#productForm'); if (!f) return;
+    const other = f.elements[el.name + '_other'];
+    if (other) { other.hidden = el.value !== TAX_OTHER; if (el.value === TAX_OTHER) other.focus(); else other.value = ''; }
+    if (el.name === 'category') {
+      const cat = el.value === TAX_OTHER ? '' : el.value;
+      const sub = f.elements.subcategory, subOther = f.elements.subcategory_other;
+      if (sub) {
+        const opts = subsFor(cat);
+        sub.innerHTML = `<option value="">${cat ? 'Choose a sub-category…' : 'Pick a category first'}</option>` + opts.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('') + `<option value="${TAX_OTHER}">Other — type my own…</option>`;
+        sub.value = '';
+      }
+      if (subOther) { subOther.hidden = true; subOther.value = ''; }
+    }
+    autoFillDerived();
+  },
+  genSku() {
+    const f = $('#productForm'); if (!f) return;
+    const p = readProductForm(); const sku = E.deriveSku(p);
+    if (!sku) { toast('Fill the product type first, then Build', 'warn'); f.elements.productType.focus(); return; }
+    f.elements.sku.value = sku; S.skuManual = false;
+    const vr = $$('#varRows .varrow');
+    vr.forEach((r, i) => { const el = $('[data-vk=sku]', r); if (el && !el.value.trim()) el.value = E.deriveVariantSku(p, { colour: ($('[data-vk=colour]', r) || {}).value, size: ($('[data-vk=size]', r) || {}).value }, i); });
+    toast(`SKU ${sku}${vr.length ? ` and ${vr.length} variant codes` : ''}`, 'ok');
+  },
+  genHsn() {
+    const f = $('#productForm'); if (!f) return;
+    const p = readProductForm(); const g = suggestHsn(p);
+    if (!g) { toast('Pick a sub-category first — the HSN follows from it', 'warn'); return; }
+    f.elements.hsn.value = g.hsn; S.hsnManual = false;
+    if (g.gst !== '' && !f.elements.gst.value) f.elements.gst.value = String(g.gst);
+    toast(`HSN ${g.hsn} suggested from ${g.source}. Confirm it with your accountant.`, 'warn');
+  },
+  suggestMrp() {
+    const f = $('#productForm'); if (!f) return;
+    const sell = parseFloat(f.elements.sellingPrice.value);
+    if (!(sell > 0)) { toast('Enter the selling price first', 'warn'); f.elements.sellingPrice.focus(); return; }
+    f.elements.mrp.value = mrpFromSelling(sell);
+    toast('MRP set to 1.5 × selling price — change it to the price printed on the pack', 'warn');
+  },
+  async fetchStockUnits(e, el) {
+    if (!IBI_STOCK) { toast('The IBI stock link is off for this workspace', 'warn'); return; }
+    const f = $('#productForm'); if (!f) return;
+    const name = clean0(f.elements.productType.value);
+    if (!name) { toast('Fill the product type first', 'warn'); f.elements.productType.focus(); return; }
+    await withBusy(el, async () => {
+      const items = await IBIStock.fetchStock();
+      const m = IBIStock.matchStock(items, name);
+      if (m.kind === 'exact' || m.kind === 'strong') {
+        f.elements.stock.value = m.row.total;
+        if (!f.elements.hsn.value && m.row.hsn) f.elements.hsn.value = m.row.hsn;
+        toast(`${m.row.total} in stock (${m.row.packed} packed + ${m.row.loose} loose) — ${m.row.product}`, 'ok');
+        return;
+      }
+      if (!m.candidates.length) { toast(`“${name}” is not in IBI Stock Availability. Add it there, or type the units.`, 'warn'); return; }
+      const pick = await modal({
+        title: 'Which stock row is this?', wide: true,
+        body: `<p class="small muted">No exact match for <b>${esc(name)}</b> in IBI Stock Availability. Pick the row it belongs to, or close and type the units by hand.</p><div class="help-sugg">${m.candidates.map((c, i) => `<button data-mact="pick${i}">${esc(c.product)} <span class="faint">— ${c.packed + c.loose} in stock</span></button>`).join('')}</div>`,
+        buttons: [{ label: 'Cancel', act: 'cancel' }],
+      });
+      if (!pick) return;
+      const row = m.candidates[+pick.act.replace('pick', '')]; if (!row) return;
+      f.elements.stock.value = row.total;
+      if (!f.elements.hsn.value && row.hsn) f.elements.hsn.value = row.hsn;
+      toast(`${row.total} in stock (${row.packed} packed + ${row.loose} loose)`, 'ok');
+    });
+  },
   imgAdd() { const i = $('#imgUrl'); const u = i.value.trim(); if (!/^https?:\/\//.test(u)) { toast('Paste a full http(s) image URL', 'err'); return; } S.draft.images.push({ url: u, alt: '' }); i.value = ''; paintImages(); },
   imgUpload() { pickFile('image/*', async file => { if (file.size > 2.5e6) { toast('Keep preview uploads under 2.5 MB', 'err'); return; } const data = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(file); }); S.draft.images.push({ data, alt: file.name, local: true }); paintImages(); toast('Added for preview — exports need a public URL', 'warn'); }); },
   imgRemove(e, el) { S.draft.images.splice(+el.dataset.idx, 1); S.imgSel = null; paintImages(); },
@@ -501,7 +634,10 @@ const A = {
   async exportRun(e, el) { if (!S.exp.ch.length || !S.exp.pids.length) { toast('Pick at least one channel and one product', 'warn'); return; } await exportChannels(S.exp.ch, S.exp.pids, el); },
   async exportPack() { const pack = { app: 'IBI Product Listings Master', version: APP_VERSION, exportedAt: now(), products: S.exp.pids.map(pid => ({ product: productById(pid), listings: Object.fromEntries(S.exp.ch.map(chid => [chid, (listingRec(pid, chid) || {}).current || null])) })) }; X.downloadJson(`listing-pack-${new Date().toISOString().slice(0, 10)}.json`, pack); toast('Listing pack downloaded', 'ok'); },
   async exportProducts() { const rows = S.products.map(p => [p.sku, p.brand, p.productType, p.category, p.subcategory, p.material, p.colour, p.size, (p.keyFeatures || []).join(' | '), (p.useCases || []).join(', '), (p.keywords || []).join(', '), p.mrp, p.sellingPrice, p.gst, p.hsn, p.stock, p.weightG, p.lengthCm, p.breadthCm, p.heightCm, p.netQuantity, p.countryOfOrigin, p.manufacturerName, p.manufacturerAddress, ...(p.images || []).slice(0, 5).map(i => i.url || '')]); const head = ['SKU', 'Brand', 'Product Type', 'Category', 'Sub-category', 'Material', 'Colour', 'Size', 'Key Features', 'Use Cases', 'Keywords', 'MRP', 'Selling Price', 'GST %', 'HSN', 'Stock', 'Weight (g)', 'Length (cm)', 'Breadth (cm)', 'Height (cm)', 'Net Quantity', 'Country of Origin', 'Manufacturer', 'Manufacturer Address', 'Image 1', 'Image 2', 'Image 3', 'Image 4', 'Image 5']; try { await X.downloadXlsx(`catalogue-${new Date().toISOString().slice(0, 10)}.xlsx`, [{ name: 'Catalogue', headerRow: head, rows }]); } catch (err) { X.downloadCsv('catalogue.csv', E.toCsv(head, rows)); toast(err.message, 'warn'); } },
-  importSheet() { pickFile('.xlsx,.xls,.csv', async file => { try { const rows = await X.parseSheetFile(file); if (!rows.length) { toast('No rows found', 'warn'); return; } const d = defaultsFromBusiness(); let n = 0; const byTitle = {}; for (const r of rows) { const q = X.rowToProduct(r); if (!q.productType) continue; const key = q.productType.toLowerCase(); if (byTitle[key]) { byTitle[key].variants.push({ sku: q.sku, colour: q.colour, size: q.size, sellingPrice: q.sellingPrice, mrp: q.mrp, stock: q.stock }); q.images.forEach(i => { if (!byTitle[key].images.some(x => x.url === i.url)) byTitle[key].images.push(i); }); continue; } const p = Object.assign(E.blankProduct(), d, q, { id: uid(), variants: [] }); byTitle[key] = p; n++; } for (const p of Object.values(byTitle)) { if (p.variants.length) p.variants.unshift({ sku: p.sku, colour: p.colour, size: p.size, stock: p.stock }); await saveProduct(p); } toast(`${n} product${n === 1 ? '' : 's'} imported from ${file.name}`, 'ok'); go('products'); render(); } catch (err) { toast('Import failed: ' + err.message, 'err'); } }); },
+  importSheet() { pickFile('.xlsx,.xls,.csv', async file => { try { const rows = await X.parseSheetFile(file); if (!rows.length) { toast('No rows found', 'warn'); return; } const d = defaultsFromBusiness(); let n = 0; const byTitle = {}; for (const r of rows) { const q = X.rowToProduct(r); if (!q.productType) continue; const key = q.productType.toLowerCase(); if (byTitle[key]) { byTitle[key].variants.push({ sku: q.sku, colour: q.colour, size: q.size, sellingPrice: q.sellingPrice, mrp: q.mrp, stock: q.stock }); q.images.forEach(i => { if (!byTitle[key].images.some(x => x.url === i.url)) byTitle[key].images.push(i); }); continue; } const p = Object.assign(E.blankProduct(), d, q, { id: uid(), variants: [] });
+            if (!p.category) { const g = guessCategory(`${p.productType} ${q.category || ''} ${p.material || ''}`); if (g) { p.category = g.category; p.subcategory = p.subcategory || g.subcategory; } }
+            if (!p.sku) p.sku = E.deriveSku(p);
+            if (!p.hsn) { const h = suggestHsn(p); if (h) p.hsn = h.hsn; } byTitle[key] = p; n++; } for (const p of Object.values(byTitle)) { if (p.variants.length) p.variants.unshift({ sku: p.sku, colour: p.colour, size: p.size, stock: p.stock }); await saveProduct(p); } toast(`${n} product${n === 1 ? '' : 's'} imported from ${file.name}`, 'ok'); go('products'); render(); } catch (err) { toast('Import failed: ' + err.message, 'err'); } }); },
   async deleteSelected() { const ids = $$('.selrow:checked').map(x => x.value); if (!ids.length) { toast('Tick the products to delete first', 'warn'); return; } if (!await confirmDlg('Delete products', `Delete ${ids.length} product${ids.length > 1 ? 's' : ''} and their listings?`, 'Delete', 'danger')) return; for (const id of ids) await deleteProduct(id); toast('Deleted'); render(); },
   authSwitch() { S.authMode = S.authMode === 'signup' ? 'login' : 'signup'; render(); },
   async authSubmit(e, el) { const f = $('#authForm'); if (!f.reportValidity()) return; const email = f.elements.username.value.trim().toLowerCase(), pw = f.elements.password.value; await withBusy(el, async () => { try { if (S.authMode === 'signup') await cloud.signup(email, pw, (f.elements.name || {}).value || ''); else await cloud.login(email, pw); await cloud.me(); toast(S.authMode === 'signup' ? 'Account created' : 'Signed in', 'ok'); try { await syncWorkspace(); } catch (err) { toast('Signed in, but the first sync failed: ' + err.message, 'warn'); } render(); } catch (err) { toast(err.message, 'err'); } }); },
@@ -513,7 +649,7 @@ const A = {
   async deleteAccount() { const r = await modal({ title: 'Delete account', body: `<p>This deletes your cloud account and its synced copy. Type your password to confirm.</p><form id="delForm" onsubmit="return false"><input class="input" name="pw" type="password" autocomplete="current-password" required></form>`, buttons: [{ label: 'Cancel', act: 'cancel' }, { label: 'Delete my account', act: 'ok', cls: 'danger' }], onMount: root => root.querySelector('[data-mact=ok]').addEventListener('click', () => { S.pwVals = { old: root.querySelector('#delForm').elements.pw.value }; }, true) }); if (!r) return; try { await cloud.deleteAccount(S.pwVals.old); cloud.state.user = null; toast('Account deleted'); render(); } catch (err) { toast(err.message, 'err'); } },
   async backupExport() { const b = await exportBackup(); X.downloadJson(`listings-master-backup-${new Date().toISOString().slice(0, 10)}.json`, b); toast('Backup downloaded', 'ok'); },
   backupImport() { pickFile('.json', async file => { try { const obj = JSON.parse(await file.text()); const r = await importBackup(obj, { merge: true }); await loadAll(); toast(`Restored ${r.products} products (merged)`, 'ok'); render(); } catch (err) { toast(err.message, 'err'); } }); },
-  async saveSettings() { const f = $('#settingsForm'); for (const k of ['brand', 'manufacturerName', 'manufacturerAddress', 'packerName', 'packerAddress', 'consumerCare', 'countryOfOrigin']) S.settings.business[k] = f.elements[k].value.trim(); S.settings.business.gst = +f.elements.gst.value; S.settings.onboarded = true; await saveSettings(S.settings); toast('Defaults saved', 'ok'); },
+  async saveSettings() { const f = $('#settingsForm'); S.settings.ibiStock = !f.elements.ibiStockOff || !f.elements.ibiStockOff.checked; for (const k of ['brand', 'manufacturerName', 'manufacturerAddress', 'packerName', 'packerAddress', 'consumerCare', 'countryOfOrigin']) S.settings.business[k] = f.elements[k].value.trim(); S.settings.business.gst = +f.elements.gst.value; S.settings.onboarded = true; await saveSettings(S.settings); refreshIbiStockFlag(); toast('Defaults saved', 'ok'); },
   async setTheme(e, el) { S.settings.theme = el.value; await saveSettings(S.settings); applyTheme(); },
   async setTextSize(e, el) { S.settings.textSize = +el.value; await saveSettings(S.settings); applyTheme(); },
   async setAiMode(e, el) { S.settings.ai.mode = el.value; await saveSettings(S.settings); toast(el.value === 'byok' ? 'Using your own Gemini key' : 'Using the service AI'); },
@@ -612,11 +748,25 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && t.matches('#imgUrl')) { e.preventDefault(); A.imgAdd(); } if (e.key === 'Enter' && t.matches('#seedInput')) { e.preventDefault(); const b = $('[data-act=fetchSuggest]'); b && b.click(); } if (e.key === 'Enter' && t.closest('#authForm') && t.tagName !== 'BUTTON') { e.preventDefault(); A.authSubmit(e, $('[data-act=authSubmit]')); } });
 $('#globalSearch').addEventListener('input', debounce(e => { S.q = e.target.value; if (S.route.name !== 'products') go('products'); else render(); }, 250));
 document.addEventListener('input', e => {
+  const el = e.target;
+  if (el.name === 'sku' && el.closest && el.closest('#productForm')) S.skuManual = !!clean0(el.value); // once typed, it is theirs
+  if (el.name === 'hsn' && el.closest && el.closest('#productForm')) S.hsnManual = !!clean0(el.value);
+  if (el.name === 'sellingPrice' && el.closest && el.closest('#productForm')) debouncedMrp();
+  if (el.closest && el.closest('#productForm') && ['brand', 'productType', 'material', 'colour', 'size', 'packSize', 'name'].includes(el.name)) debouncedDerive();
   if (e.target.id === 'prodSearch') { S.q = e.target.value; debouncedProducts(); }
   if (e.target.id === 'helpSearch') { S.helpQ = e.target.value; debouncedHelp(); }
   if (e.target.id === 'helpInput') autosize(e.target);
 });
 const debouncedHelp = debounce(() => { const v = $('#helpSearch'); const pos = v ? v.selectionStart : 0; render().then(() => { const n = $('#helpSearch'); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }); }, 250);
+const debouncedMrp = debounce(() => {
+  const f = $('#productForm'); if (!f) return;
+  const sell = parseFloat(f.elements.sellingPrice.value);
+  if (!(sell > 0) || clean0(f.elements.mrp.value)) return; // never overwrite a typed MRP
+  f.elements.mrp.value = mrpFromSelling(sell);
+  const fld = f.elements.mrp.closest('.field'), hint = fld && fld.querySelector('.hint');
+  if (hint) hint.innerHTML = '<b>Suggested 1.5 \u00d7 selling price.</b> MRP is a Legal Metrology declaration \u2014 change it to the price printed on the pack.';
+}, 500);
+const debouncedDerive = debounce(() => autoFillDerived(), 700);
 const debouncedProducts = debounce(() => { const v = $('#prodSearch'); const pos = v ? v.selectionStart : 0; render().then(() => { const n = $('#prodSearch'); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }); }, 250);
 $('#themeBtn').addEventListener('click', () => A.toggleTheme());
 $('#syncBtn').addEventListener('click', () => A.goSync());
