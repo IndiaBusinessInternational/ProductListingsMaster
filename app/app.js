@@ -1,4 +1,4 @@
-/* IBI Product Listings Master — application (v1.0.0)
+/* IBI Product Listings Master — application (v1.1.0)
  * Local-first SPA. Every control is wired through data-act="<name>" → A.<name>; tests/audit_actions.mjs
  * fails the build if a data-act names an action that does not exist.
  */
@@ -6,7 +6,8 @@ import { CHANNELS, CHANNEL_MAP, exportSpec, blankChannel, SLOT_LABELS, RULE_LABE
 import * as E from './engine.js';
 import { db, uid, now, loadSettings, saveSettings, secrets, exportBackup, importBackup, cloud, syncWorkspace, APP_VERSION } from './store.js';
 import * as X from './exporter.js';
-import { enhance } from './ai.js';
+import { enhance, helpAnswer } from './ai.js';
+import { HELP_ARTICLES, HELP_VERSION, searchHelp, answerFromKb, startersFor, renderHelpText } from './help.js';
 
 export const PLANS = {
   free: { name: 'Free', price: 0, products: 25, ai: 10, custom: 1, seats: 1, blurb: 'Rule-engine listings for every channel, unlimited local products, 25 in cloud sync.' },
@@ -365,13 +366,78 @@ async function vSettings() {
     <fieldset class="sec"><legend>Data</legend><div class="split"><button class="btn" data-act="backupExport">Download backup</button><button class="btn" data-act="backupImport">Restore backup</button><button class="btn danger" data-act="resetLocal">Reset this device</button></div><p class="small muted" style="margin-top:8px">Reset wipes products, listings and settings from this browser only. Cloud copies are untouched.</p></fieldset></form>`;
 }
 
-async function vHelp() {
-  return pageHead('Help', 'Short answers; the rest is in the app itself.') + `<div class="panel help"><div class="pb">
-  <h3>The workflow</h3><ol><li><b>Products</b>: one master record per product. The more facts you give (material, features, size, certifications, manufacturer address), the higher every channel's score.</li><li><b>Studio</b>: Generate all → the rule engine writes each channel's title, highlights, bullets, description and keywords inside that platform's limits. Edit anything; edits lock. Enhance with AI polishes the wording; the engine re-checks it.</li><li><b>Exports</b>: download the channel's sheet and paste into the marketplace template.</li><li><b>Performance</b>: after a week live, log impressions and clicks. Re-optimise moves the winning words earlier.</li></ol>
-  <h3>Channel notes</h3><ul>${allChannels().map(ch => `<li><b>${esc(ch.name)}</b>: ${esc(ch.summary)}</li>`).join('')}</ul>
-  <h3>Compliance</h3><p>Indian marketplaces enforce the Legal Metrology (Packaged Commodities) declarations: name and address of the manufacturer/packer/importer, common name of the commodity, net quantity, MRP, country of origin and consumer care contact. Fill the Compliance section once in Settings and every product inherits it.</p>
-  <h3>Data & privacy</h3><p>Local mode keeps everything in this browser (IndexedDB). With an account, the workspace syncs to IBI's cloud (Cloudflare KV, India-region edge). API keys you paste stay on the device. Read the <a href="../privacy.html" target="_blank">privacy policy</a> and <a href="../terms.html" target="_blank">terms</a>.</p>
-  <h3>Support</h3><p>WhatsApp <a href="https://wa.me/918939414799?text=Hi%2C%20I%20need%20help%20with%20IBI%20Product%20Listings%20Master" target="_blank" rel="noopener">+91 89394 14799</a> · <a href="mailto:indiabusinessinternational@gmail.com">indiabusinessinternational@gmail.com</a></p></div></div>`;
+/* ───────── help assistant ───────── */
+const HELP = { open: false, msgs: [], busy: false };
+const HELP_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9.1 9a3 3 0 1 1 4.2 2.7c-.8.4-1.3 1.2-1.3 2.1v.3"/><circle cx="12" cy="17.5" r=".9" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="9.2"/></svg>';
+
+function helpMount() {
+  if (!$('#helpRoot')) { const d = document.createElement('div'); d.id = 'helpRoot'; document.body.appendChild(d); }
+  paintHelp();
+  /* ?help=1 opens the assistant, ?help=<article id or question> opens it on that answer.
+     Support can send a seller a link that explains the thing they asked about. */
+  const want = new URLSearchParams(location.search).get('help');
+  if (want) {
+    HELP.open = true; paintHelp();
+    const art = HELP_ARTICLES.find(a => a.id === want);
+    const q = art ? art.title : (want === '1' || want === 'true' ? '' : want);
+    if (q) helpRun(q);
+  }
+}
+function paintHelp() {
+  const root = $('#helpRoot'); if (!root) return;
+  if (!HELP.open) {
+    root.innerHTML = `<button class="help-fab" data-act="helpOpen" title="Help — how to use Listings Master" aria-label="Open help">${HELP_ICON}</button>`;
+    return;
+  }
+  const body = HELP.msgs.length
+    ? HELP.msgs.map(m => m.role === 'you'
+      ? `<div class="hmsg you">${esc(m.text)}</div>`
+      : `<div class="hmsg bot">${m.src ? `<span class="src">${esc(m.src)}</span>` : ''}${m.typing ? '<span class="typing">Looking that up…</span>' : renderHelpText(m.text, esc)}${(m.actions && m.actions.length) ? `<div class="acts">${m.actions.map(a => `<span class="chip" data-act="${esc(a.act)}" ${a.id ? `data-id="${esc(a.id)}"` : ''} ${a.q ? `data-q="${esc(a.q)}"` : ''}>${esc(a.label)}</span>`).join('')}</div>` : ''}</div>`).join('')
+    : `<div class="help-greet">Ask me anything about using Listings Master — how to import your sheet, what Amazon allows in a title, why Meesho is different, what the score means. I answer from the built-in help, so I work offline too.</div>
+       <div class="help-sugg">${startersFor(S.route.name).map(s => `<button data-act="helpStarter" data-q="${esc(s.q)}">${esc(s.q)}</button>`).join('')}</div>`;
+  root.innerHTML = `<div class="help-panel" role="dialog" aria-label="Help assistant">
+    <div class="hh"><div style="flex:1;min-width:0"><b>Help</b><div class="sub">Listings Master · answers from the built-in guide</div></div>${HELP.msgs.length ? '<button class="iconbtn" data-act="helpClear" title="Start again" aria-label="Start again">⟲</button>' : ''}<button class="iconbtn" data-act="helpClose" title="Close" aria-label="Close help">✕</button></div>
+    <div class="hb" id="helpBody">${body}</div>
+    <div class="hf"><textarea id="helpInput" rows="1" placeholder="Ask a question…" aria-label="Ask a question"></textarea><button class="btn primary" data-act="helpSend" ${HELP.busy ? 'disabled' : ''}>Ask</button></div>
+  </div>`;
+  const b = $('#helpBody'); if (b) b.scrollTop = b.scrollHeight;
+  const i = $('#helpInput'); if (i && !HELP.busy && window.innerWidth > 820) i.focus();
+}
+async function helpRun(q) {
+  q = clean0(q); if (!q) return;
+  HELP.msgs.push({ role: 'you', text: q });
+  const kb = answerFromKb(q, { route: S.route.name });
+  const actions = [];
+  if (kb.route) actions.push({ act: 'helpGo', id: kb.route, label: 'Open that screen →' });
+  (kb.related || []).slice(0, 3).forEach(r => actions.push({ act: 'helpStarter', q: r, label: r }));
+  if (kb.kind === 'nomatch') actions.push({ act: 'helpWhatsApp', label: '💬 Ask a human on WhatsApp' });
+  const msg = { role: 'bot', text: kb.text, src: kb.title || '', actions };
+  HELP.msgs.push(msg);
+  paintHelp();
+  // AI rephrase only when an engine is available and the match was not exact
+  if (kb.kind !== 'nomatch' && kb.articles.length && (cloud.state.ai || secrets.get('gemini'))) {
+    HELP.busy = true; const think = { role: 'bot', text: '', typing: true }; HELP.msgs.push(think); paintHelp();
+    try {
+      const { buildHelpPrompt } = await import('./help.js');
+      const r = await helpAnswer(buildHelpPrompt(q, kb.articles, { route: S.route.name }));
+      HELP.msgs.splice(HELP.msgs.indexOf(think), 1);
+      if (r && r.text && r.text.length > 20) { msg.text = r.text; msg.src = kb.title ? `${kb.title} · answered by AI` : 'Answered by AI'; }
+    } catch { HELP.msgs.splice(HELP.msgs.indexOf(think), 1); /* the knowledge-base answer already stands */ }
+    finally { HELP.busy = false; paintHelp(); }
+  }
+}
+const clean0 = s => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+
+async function vHelp(r) {
+  const art = r.id ? HELP_ARTICLES.find(a => a.id === r.id) : null;
+  const q = S.helpQ || '';
+  const list = q ? searchHelp(q, 12).map(h => h.article) : HELP_ARTICLES;
+  return pageHead('Help', 'Ask the assistant, or read the guide. Both answer from the same built-in help, so they work offline.', `<button class="btn primary" data-act="helpOpen">💬 Ask the assistant</button><a class="btn" href="https://wa.me/918939414799?text=Hi%2C%20I%20need%20help%20with%20IBI%20Product%20Listings%20Master" target="_blank" rel="noopener">Talk to a human</a>`)
+    + `<div class="split" style="margin-bottom:14px"><input class="input" id="helpSearch" style="max-width:420px" placeholder="Search the guide — “import sheet”, “Amazon title”, “score”…" value="${esc(q)}" autocomplete="off"><span class="muted small">${list.length} topic${list.length === 1 ? '' : 's'}</span></div>`
+    + (art ? `<div class="panel" style="margin-bottom:14px"><div class="ph"><h3>${esc(art.title)}</h3><div class="split"><button class="btn sm" data-act="helpAskArticle" data-q="${esc(art.title)}">Ask about this</button>${art.route ? `<a class="btn sm primary" href="${esc(art.route)}">Open that screen →</a>` : ''}</div></div><div class="pb help-answer">${renderHelpText(art.body, esc)}</div></div>` : '')
+    + `<div class="help-topics">${list.map(a => `<button data-act="helpTopic" data-id="${esc(a.id)}"><b>${esc(a.title)}</b><span>${esc(a.body.replace(/\*\*/g, '').split('\n')[0].slice(0, 110))}…</span></button>`).join('') || '<div class="muted">Nothing matches that. Try fewer words, or ask the assistant.</div>'}</div>`
+    + `<div class="grid g2" style="margin-top:16px"><div class="panel"><div class="ph"><h3>Channel notes</h3></div><div class="pb help"><ul>${allChannels().map(ch => `<li><b>${esc(ch.name)}</b> <span class="faint small">policy ${fmtDate(ch.policyDate)}</span><br><span class="muted small">${esc(ch.summary)}</span></li>`).join('')}</ul></div></div>
+    <div class="panel"><div class="ph"><h3>Support &amp; legal</h3></div><div class="pb help"><p>WhatsApp <a href="https://wa.me/918939414799?text=Hi%2C%20I%20need%20help%20with%20IBI%20Product%20Listings%20Master" target="_blank" rel="noopener">+91 89394 14799</a> · <a href="mailto:indiabusinessinternational@gmail.com">indiabusinessinternational@gmail.com</a>, Monday to Saturday, Indian business hours.</p><p><a href="../terms.html" target="_blank">Terms of service</a> · <a href="../privacy.html" target="_blank">Privacy policy</a> · <a href="../refunds.html" target="_blank">Refunds &amp; cancellation</a></p><p class="small muted">Help guide v${HELP_VERSION} · ${HELP_ARTICLES.length} topics · App v${APP_VERSION}</p></div></div></div>`;
 }
 
 /* ───────── actions (every data-act resolves here) ───────── */
@@ -455,6 +521,15 @@ const A = {
   toggleTheme() { const cur = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light'; S.settings.theme = cur === 'dark' ? 'light' : 'dark'; saveSettings(S.settings); applyTheme(); },
   goSync() { go('account'); },
   goAccount() { go('account'); },
+  helpOpen() { HELP.open = true; paintHelp(); },
+  helpClose() { HELP.open = false; paintHelp(); },
+  helpClear() { HELP.msgs = []; paintHelp(); },
+  async helpSend() { const i = $('#helpInput'); if (!i) return; const q = i.value; i.value = ''; if (!clean0(q)) { toast('Type a question first'); return; } await helpRun(q); },
+  async helpStarter(e, el) { await helpRun(el.dataset.q); },
+  async helpAskArticle(e, el) { HELP.open = true; paintHelp(); await helpRun(el.dataset.q); },
+  helpGo(e, el) { HELP.open = false; paintHelp(); location.hash = el.dataset.id; },
+  helpTopic(e, el) { go('help/' + el.dataset.id); },
+  helpWhatsApp() { window.open('https://wa.me/918939414799?text=' + encodeURIComponent('Hi, I need help with IBI Product Listings Master: '), '_blank', 'noopener'); },
   async about() { await modal({ title: 'About IBI Product Listings Master', body: `<dl class="kv"><dt>App</dt><dd>v${APP_VERSION}</dd><dt>Backend</dt><dd>${cloud.state.available ? `v${cloud.state.version}${cloud.state.version === APP_VERSION ? ' ✓ in step' : ' — differs from the app'}` : 'offline / local mode'}</dd><dt>Engine</dt><dd>v${E.ENGINE_VERSION}</dd><dt>Channels</dt><dd>${CHANNELS.length} built-in + ${S.custom.length} custom</dd><dt>Features</dt><dd>${cloud.state.available ? esc((cloud.state.features || []).join(', ') || '—') : '—'}</dd></dl><p class="small muted" style="margin-top:10px">India Business International · <a href="../" target="_blank">listingsmaster.indiabusinessinternational.online</a></p>` }); },
 };
 
@@ -522,9 +597,17 @@ document.addEventListener('click', e => {
   fn.call(A, e, el);
 });
 document.addEventListener('change', e => { const el = e.target.closest('[data-act]'); if (!el || !el.matches('input[type=checkbox], select')) return; const fn = A[el.dataset.act]; if (!fn) { toast('This control is not wired: ' + el.dataset.act, 'err'); return; } fn.call(A, e, el); });
-document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('#imgUrl')) { e.preventDefault(); A.imgAdd(); } if (e.key === 'Enter' && e.target.matches('#seedInput')) { e.preventDefault(); const b = $('[data-act=fetchSuggest]'); b && b.click(); } if (e.key === 'Enter' && e.target.closest('#authForm') && e.target.tagName !== 'BUTTON') { e.preventDefault(); A.authSubmit(e, $('[data-act=authSubmit]')); } });
+document.addEventListener('keydown', e => {
+  if (e.target.matches('#helpInput')) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); A.helpSend(); } return; }
+  if (e.key === 'Escape' && HELP.open && !$('#modalRoot').firstChild) { A.helpClose(); return; }
+  if (e.key === 'Enter' && e.target.matches('#imgUrl')) { e.preventDefault(); A.imgAdd(); } if (e.key === 'Enter' && e.target.matches('#seedInput')) { e.preventDefault(); const b = $('[data-act=fetchSuggest]'); b && b.click(); } if (e.key === 'Enter' && e.target.closest('#authForm') && e.target.tagName !== 'BUTTON') { e.preventDefault(); A.authSubmit(e, $('[data-act=authSubmit]')); } });
 $('#globalSearch').addEventListener('input', debounce(e => { S.q = e.target.value; if (S.route.name !== 'products') go('products'); else render(); }, 250));
-document.addEventListener('input', e => { if (e.target.id === 'prodSearch') { S.q = e.target.value; debouncedProducts(); } });
+document.addEventListener('input', e => {
+  if (e.target.id === 'prodSearch') { S.q = e.target.value; debouncedProducts(); }
+  if (e.target.id === 'helpSearch') { S.helpQ = e.target.value; debouncedHelp(); }
+  if (e.target.id === 'helpInput') autosize(e.target);
+});
+const debouncedHelp = debounce(() => { const v = $('#helpSearch'); const pos = v ? v.selectionStart : 0; render().then(() => { const n = $('#helpSearch'); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }); }, 250);
 const debouncedProducts = debounce(() => { const v = $('#prodSearch'); const pos = v ? v.selectionStart : 0; render().then(() => { const n = $('#prodSearch'); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }); }, 250);
 $('#themeBtn').addEventListener('click', () => A.toggleTheme());
 $('#syncBtn').addEventListener('click', () => A.goSync());
@@ -542,6 +625,7 @@ window.addEventListener('online', () => { cloud.probe().then(() => { paintNav();
   } catch { /* private mode */ }
   const r = parseRoute();
   if (r.name === 'products' && r.id) { S.route = r; paintNav(); $('#view').innerHTML = await vProductEdit(r.id); $$('textarea.auto').forEach(autosize); } else await render();
+  helpMount();
   cloud.probe().then(async () => { if (cloud.state.available) { await cloud.me(); if (cloud.state.user && S.settings.autoSync) { try { await syncWorkspace(); await loadAll(); if (S.route.name !== 'products' || !S.route.id) render(); } catch (e) { console.warn(e); } } } paintNav(); });
   if ('serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js').then(reg => { reg.addEventListener('updatefound', () => { const nw = reg.installing; nw && nw.addEventListener('statechange', () => { if (nw.state === 'installed' && navigator.serviceWorker.controller) toast('Update ready — reload to get the new version'); }); }); }).catch(() => { /* file:// or unsupported */ }); }
 })();

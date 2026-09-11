@@ -10,7 +10,7 @@ function extractJson(text) {
   if (!text) return null; const s = String(text).replace(/```(?:json)?/g, '');
   for (let i = s.indexOf('{'); i >= 0; i = s.indexOf('{', i + 1)) {
     let depth = 0, q = false;
-    for (let j = i; j < s.length; j++) { const c = s[j]; if (q) { if (c === '\\') j++; else if (c === '"') q = false; continue; } if (c === '"') q = true; else if (c === '{') depth++; else if (c === '}') { depth--; if (!depth) { try { const o = JSON.parse(s.slice(i, j + 1)); if (o && typeof o === 'object' && ('title' in o || 'bullets' in o)) return o; } catch { /* next */ } break; } } }
+    for (let j = i; j < s.length; j++) { const c = s[j]; if (q) { if (c === '\\') j++; else if (c === '"') q = false; continue; } if (c === '"') q = true; else if (c === '{') depth++; else if (c === '}') { depth--; if (!depth) { try { const o = JSON.parse(s.slice(i, j + 1)); if (o && typeof o === 'object' && ('title' in o || 'bullets' in o || 'answer' in o)) return o; } catch { /* next */ } break; } } }
   }
   return null;
 }
@@ -86,6 +86,25 @@ export const onRequestPost = handle(async ({ request, env }) => {
   const provider = (env.AI_PROVIDER || (env.ANTHROPIC_API_KEY ? 'anthropic' : env.GEMINI_API_KEY ? 'gemini' : env.DEEPSEEK_API_KEY ? 'deepseek' : env.LOCAL_AI_URL && env.LOCAL_AI_CODE ? 'local' : '')).toLowerCase();
   const impl = { anthropic: env.ANTHROPIC_API_KEY && callAnthropic, gemini: env.GEMINI_API_KEY && callGemini, deepseek: env.DEEPSEEK_API_KEY && callDeepSeek, local: env.LOCAL_AI_URL && env.LOCAL_AI_CODE && callLocal }[provider];
   if (!impl) return notConfigured('Server AI');
+
+  /* ── help assistant ──
+   * The page has already retrieved its own help articles and sends them as the only
+   * source; this only rephrases them. No sign-in (a visitor deciding whether to buy
+   * must be able to ask), no listing quota, a tight IP rate limit and a small cap.
+   * It returns plain text, never a listing. */
+  const peek = await request.clone().json().catch(() => null);
+  if (peek && peek.task === 'help') {
+    if (!await rateLimit(env, 'help:' + clientIp(request), 25, 3600)) return err('Too many help questions from this network; try again in an hour, or WhatsApp +91 89394 14799.', 429);
+    if (typeof peek.system !== 'string' || typeof peek.user !== 'string') return err('Missing prompt');
+    if (peek.system.length + peek.user.length > 24000) return err('Prompt too long');
+    const r = await impl(env, { system: peek.system, user: peek.user, schema: { type: 'object', properties: { answer: { type: 'string' } }, required: ['answer'] } });
+    let text = (r.text || '').trim();
+    const j = extractJson(text); if (j && typeof j.answer === 'string') text = j.answer.trim();
+    text = text.replace(/^```[a-z]*\s*|\s*```$/g, '').trim();
+    if (!text) return err('The assistant had no answer; the help topics below still apply.', 502);
+    return json({ text: text.slice(0, 4000), provider: r.provider });
+  }
+
   if (!env.PLM_KV || !env.SESSION_SECRET) return notConfigured('Accounts (needed for AI quotas)');
   const u = await requireUser(request, env);
   if (!await rateLimit(env, 'ai:' + clientIp(request), 40, 600)) return err('Slow down — 40 AI calls per 10 minutes', 429);

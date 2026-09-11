@@ -62,6 +62,34 @@ async function viaGemini(prompt, key) {
   return { draft: out, provider: 'gemini (your key)' };
 }
 
+/* ── help assistant ──
+ * Rephrases the retrieved help articles. Grounded: the Function is given the same
+ * instruction ("answer only from these articles"), and a failure here is never fatal —
+ * the caller falls back to the knowledge-base answer it already has.
+ * Does NOT consume the listing AI quota. */
+export async function helpAsk(prompt) {
+  const byok = secrets.get('gemini');
+  if (cloud.state.available && cloud.state.ai) {
+    const r = await cloud.helpAi({ system: prompt.system, user: prompt.user });
+    if (r && r.text) return { text: r.text, provider: r.provider || 'server' };
+    throw new Error('empty reply');
+  }
+  if (byok) {
+    const body = { systemInstruction: { parts: [{ text: prompt.system }] }, contents: [{ role: 'user', parts: [{ text: prompt.user }] }], generationConfig: { temperature: 0.3, maxOutputTokens: 700, thinkingConfig: { thinkingLevel: 'minimal' } } };
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent?key=${encodeURIComponent(byok)}`;
+    let r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (r.status === 400) { delete body.generationConfig.thinkingConfig; r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); }
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error((j.error && j.error.message) || `Gemini HTTP ${r.status}`);
+    const text = ((((j.candidates || [])[0] || {}).content || {}).parts || []).filter(p => !p.thought).map(p => p.text).join('').trim();
+    if (!text) throw new Error('empty reply');
+    return { text, provider: 'gemini (your key)' };
+  }
+  throw new Error('no engine');
+}
+/* kept for the app's import name */
+export const helpAnswer = helpAsk;
+
 /* Returns {draft, provider, usage?}. Throws with a readable message. */
 export async function enhance({ product, channel, current, instructions, suggestions, mode }) {
   const prompt = buildPrompt(product, channel, current, { instructions, suggestions });

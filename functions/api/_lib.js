@@ -1,7 +1,7 @@
 /* IBI Product Listings Master — shared backend helpers (Cloudflare Pages Functions).
  * Files starting with "_" are not routed. KV binding: PLM_KV. Env vars: see README.
  * VERSION moves with the app badge every release (frontend-backend-same-version). */
-export const VERSION = '1.0.0';
+export const VERSION = '1.1.0';
 export const PLANS = {
   free: { name: 'Free', price: 0, products: 25, ai: 10, custom: 1, seats: 1 },
   starter: { name: 'Starter', price: 499, products: 300, ai: 150, custom: 3, seats: 1 },

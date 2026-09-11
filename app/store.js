@@ -1,5 +1,5 @@
 /* IBI Product Listings Master — storage (IndexedDB, local-first) + cloud sync client */
-export const APP_VERSION = '1.0.0';
+export const APP_VERSION = '1.1.0';
 const DB_NAME = 'plm', DB_VER = 1;
 const STORES = ['products', 'listings', 'perf', 'channels', 'settings', 'kwcache'];
 let dbp = null;
@@ -88,6 +88,7 @@ export const cloud = {
   pull: () => call('data'),
   push: payload => call('data', { method: 'PUT', body: payload }),
   ai: body => call('ai', { method: 'POST', body }),
+  helpAi: body => call('ai', { method: 'POST', body: { ...body, task: 'help' } }),
   suggest: q => call('suggest?q=' + encodeURIComponent(q)),
   order: plan => call('billing/order', { method: 'POST', body: { plan } }),
   orderStatus: id => call('billing/status?order=' + encodeURIComponent(id)),
