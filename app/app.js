@@ -1,4 +1,4 @@
-/* IBI Product Listings Master — application (v1.1.0)
+/* IBI Product Listings Master — application (v1.1.1)
  * Local-first SPA. Every control is wired through data-act="<name>" → A.<name>; tests/audit_actions.mjs
  * fails the build if a data-act names an action that does not exist.
  */

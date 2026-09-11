@@ -15,6 +15,29 @@ function extractJson(text) {
   return null;
 }
 
+/* The providers are all asked for JSON, and each picks its own key for a plain-text
+ * reply — Anthropic and the local engine honour the schema and return {answer}, while
+ * DeepSeek's bare json_object mode invented {"response": …} and the raw JSON reached the
+ * user on the live site. So: take whatever strings the object holds, in order, and never
+ * show the wrapper. Anything that is not JSON is already the answer. */
+export function unwrapText(raw) {
+  let s = String(raw == null ? '' : raw).trim().replace(/^```[a-z]*\s*/i, '').replace(/\s*```$/, '').trim();
+  const strings = o => {
+    if (typeof o === 'string') return [o];
+    if (Array.isArray(o)) return o.flatMap(strings);
+    if (o && typeof o === 'object') return Object.values(o).flatMap(strings);
+    return [];
+  };
+  const tryParse = t => { try { return JSON.parse(t); } catch { return undefined; } };
+  let obj = tryParse(s);
+  if (obj === undefined) {
+    const a = s.indexOf('{'), b = s.lastIndexOf('}');
+    if (a >= 0 && b > a) obj = tryParse(s.slice(a, b + 1));
+  }
+  if (obj && typeof obj === 'object') { const v = strings(obj).map(x => x.trim()).filter(Boolean); if (v.length) return v.join('\n\n'); }
+  return s;
+}
+
 async function callAnthropic(env, p) {
   const t = withTimeout(TIMEOUT_MS);
   const base = { model: env.ANTHROPIC_MODEL || 'claude-opus-5', max_tokens: 4096, system: p.system, messages: [{ role: 'user', content: p.user }], output_config: { effort: 'low', format: { type: 'json_schema', schema: p.schema } }, fallbacks: 'default' };
@@ -98,9 +121,7 @@ export const onRequestPost = handle(async ({ request, env }) => {
     if (typeof peek.system !== 'string' || typeof peek.user !== 'string') return err('Missing prompt');
     if (peek.system.length + peek.user.length > 24000) return err('Prompt too long');
     const r = await impl(env, { system: peek.system, user: peek.user, schema: { type: 'object', properties: { answer: { type: 'string' } }, required: ['answer'] } });
-    let text = (r.text || '').trim();
-    const j = extractJson(text); if (j && typeof j.answer === 'string') text = j.answer.trim();
-    text = text.replace(/^```[a-z]*\s*|\s*```$/g, '').trim();
+    const text = unwrapText(r.text);
     if (!text) return err('The assistant had no answer; the help topics below still apply.', 502);
     return json({ text: text.slice(0, 4000), provider: r.provider });
   }
