@@ -20,22 +20,26 @@ function extractJson(text) {
  * DeepSeek's bare json_object mode invented {"response": …} and the raw JSON reached the
  * user on the live site. So: take whatever strings the object holds, in order, and never
  * show the wrapper. Anything that is not JSON is already the answer. */
+const ANSWER_KEYS = ['answer', 'response', 'reply', 'text', 'content', 'message', 'result', 'output'];
 export function unwrapText(raw) {
-  let s = String(raw == null ? '' : raw).trim().replace(/^```[a-z]*\s*/i, '').replace(/\s*```$/, '').trim();
-  const strings = o => {
-    if (typeof o === 'string') return [o];
-    if (Array.isArray(o)) return o.flatMap(strings);
-    if (o && typeof o === 'object') return Object.values(o).flatMap(strings);
-    return [];
-  };
+  const s = String(raw == null ? '' : raw).trim().replace(/^```[a-z]*\s*/i, '').replace(/\s*```$/, '').trim();
+  const strings = o => typeof o === 'string' ? [o] : Array.isArray(o) ? o.flatMap(strings) : (o && typeof o === 'object') ? Object.values(o).flatMap(strings) : [];
   const tryParse = t => { try { return JSON.parse(t); } catch { return undefined; } };
   let obj = tryParse(s);
-  if (obj === undefined) {
-    const a = s.indexOf('{'), b = s.lastIndexOf('}');
-    if (a >= 0 && b > a) obj = tryParse(s.slice(a, b + 1));
+  if (obj === undefined) { const a = s.indexOf('{'), b = s.lastIndexOf('}'); if (a >= 0 && b > a) obj = tryParse(s.slice(a, b + 1)); }
+  if (!obj || typeof obj !== 'object') return s;
+  // 1. a key that names the reply wins outright — this is the normal case
+  for (const want of ANSWER_KEYS) {
+    const k = Object.keys(obj).find(x => x.toLowerCase() === want);
+    if (k == null) continue;
+    const v = strings(obj[k]).map(x => x.trim()).filter(Boolean);
+    if (v.length) return v.join('\n\n');
   }
-  if (obj && typeof obj === 'object') { const v = strings(obj).map(x => x.trim()).filter(Boolean); if (v.length) return v.join('\n\n'); }
-  return s;
+  // 2. otherwise keep the prose and drop the provider's metadata labels
+  //    (DeepSeek returned {"type":"json_object", …} and "json_object" was being shown)
+  let v = strings(obj).map(x => x.trim()).filter(Boolean);
+  if (v.some(x => x.length >= 40)) v = v.filter(x => x.length >= 40);
+  return v.length ? v.join('\n\n') : s;
 }
 
 async function callAnthropic(env, p) {

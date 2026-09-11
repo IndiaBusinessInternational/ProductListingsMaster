@@ -27,7 +27,14 @@ test('plain text is returned untouched', () => {
 test('nested and multi-key objects keep every string, in order', () => {
   assert.equal(unwrapText(JSON.stringify({ answer: { text: ANSWER } })), ANSWER);
   assert.equal(unwrapText(JSON.stringify({ intro: 'First.', detail: 'Second.' })), 'First.\n\nSecond.');
-  assert.equal(unwrapText(JSON.stringify({ steps: ['One.', 'Two.'] })), 'One.\n\nTwo.');
+  assert.equal(unwrapText(JSON.stringify({ answer: ['One.', 'Two.'] })), 'One.\n\nTwo.');
+});
+
+test('the provider metadata label is never shown', () => {
+  // exactly what DeepSeek returned live on 11 Sep 2026
+  assert.equal(unwrapText(JSON.stringify({ type: 'json_object', response: ANSWER })), ANSWER);
+  assert.equal(unwrapText(JSON.stringify({ format: 'json', schema: 'v1', out: ANSWER })), ANSWER, 'no known key: the prose survives, the labels do not');
+  assert.equal(unwrapText(JSON.stringify({ Answer: ANSWER, model: 'deepseek-v4-flash' })), ANSWER, 'key match is case-insensitive');
 });
 
 test('empty and junk inputs never throw', () => {
