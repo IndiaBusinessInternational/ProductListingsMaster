@@ -1,0 +1,102 @@
+/* /api/ai — server-side listing enhancement. The page sends the prompt it built (system, user, JSON schema);
+ * this Function adds the key, enforces the plan quota and returns the model's JSON draft. Provider is chosen by
+ * env.AI_PROVIDER (anthropic | gemini | deepseek | local) or by whichever key exists. Raw HTTP on purpose: this
+ * Pages project has no bundler, and one Function speaks to four providers. */
+import { json, err, notConfigured, requireUser, planOf, PLANS, aiUsed, monthKey, handle, rateLimit, clientIp } from './_lib.js';
+
+const TIMEOUT_MS = 55000;
+function withTimeout(ms) { const c = new AbortController(); const t = setTimeout(() => c.abort(), ms); return { signal: c.signal, done: () => clearTimeout(t) }; }
+function extractJson(text) {
+  if (!text) return null; const s = String(text).replace(/```(?:json)?/g, '');
+  for (let i = s.indexOf('{'); i >= 0; i = s.indexOf('{', i + 1)) {
+    let depth = 0, q = false;
+    for (let j = i; j < s.length; j++) { const c = s[j]; if (q) { if (c === '\\') j++; else if (c === '"') q = false; continue; } if (c === '"') q = true; else if (c === '{') depth++; else if (c === '}') { depth--; if (!depth) { try { const o = JSON.parse(s.slice(i, j + 1)); if (o && typeof o === 'object' && ('title' in o || 'bullets' in o)) return o; } catch { /* next */ } break; } } }
+  }
+  return null;
+}
+
+async function callAnthropic(env, p) {
+  const t = withTimeout(TIMEOUT_MS);
+  const base = { model: env.ANTHROPIC_MODEL || 'claude-opus-5', max_tokens: 4096, system: p.system, messages: [{ role: 'user', content: p.user }], output_config: { effort: 'low', format: { type: 'json_schema', schema: p.schema } }, fallbacks: 'default' };
+  const headers = { 'Content-Type': 'application/json', 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'anthropic-beta': 'server-side-fallback-2026-07-01' };
+  try {
+    let r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers, body: JSON.stringify(base), signal: t.signal });
+    let j = await r.json().catch(() => ({}));
+    if (r.status === 400 && /output_config|format|fallbacks|beta/i.test(JSON.stringify(j))) { // shape drift guard: retry plain and hunt the JSON
+      const plain = { ...base }; delete plain.output_config; delete plain.fallbacks; delete headers['anthropic-beta'];
+      r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers, body: JSON.stringify(plain), signal: t.signal }); j = await r.json().catch(() => ({}));
+    }
+    if (!r.ok) throw new Error(`Anthropic ${r.status}: ${(j.error && j.error.message) || 'request failed'}`);
+    if (j.stop_reason === 'refusal') throw new Error('The model declined this request' + (j.stop_details && j.stop_details.explanation ? ': ' + j.stop_details.explanation : ''));
+    const text = (j.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
+    return { text, provider: `anthropic:${j.model || base.model}` };
+  } finally { t.done(); }
+}
+async function callGemini(env, p) {
+  const models = [env.GEMINI_MODEL || 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-2.5-flash'];
+  let last = '';
+  for (const model of models) {
+    const t = withTimeout(TIMEOUT_MS);
+    try {
+      const body = { systemInstruction: { parts: [{ text: p.system }] }, contents: [{ role: 'user', parts: [{ text: p.user }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0.6, maxOutputTokens: 4096, thinkingConfig: model.startsWith('gemini-3') ? { thinkingLevel: 'minimal' } : { thinkingBudget: 0 } } };
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(env.GEMINI_API_KEY)}`;
+      let r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: t.signal });
+      if (r.status === 400) { delete body.generationConfig.thinkingConfig; r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: t.signal }); }
+      const j = await r.json().catch(() => ({}));
+      if (r.status === 401 || r.status === 403) throw new Error('Gemini key rejected');
+      if (!r.ok) { last = `${model}: ${(j.error && j.error.message) || r.status}`; continue; }
+      const text = ((((j.candidates || [])[0] || {}).content || {}).parts || []).filter(x => !x.thought).map(x => x.text).join('');
+      if (text) return { text, provider: `gemini:${model}` };
+      last = `${model}: empty reply`;
+    } finally { t.done(); }
+  }
+  throw new Error('Gemini failed — ' + last);
+}
+async function callDeepSeek(env, p) {
+  const strategies = [{ thinking: { type: 'disabled' }, response_format: { type: 'json_object' } }, { reasoning_effort: 'none' }, {}];
+  let last = '';
+  for (const extra of strategies) {
+    const t = withTimeout(TIMEOUT_MS);
+    try {
+      const body = { model: env.DEEPSEEK_MODEL || 'deepseek-v4-flash', max_tokens: 4096, temperature: 0.6, messages: [{ role: 'system', content: p.system }, { role: 'user', content: p.user + '\nReply with JSON only.' }], ...extra };
+      const r = await fetch('https://api.deepseek.com/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + env.DEEPSEEK_API_KEY }, body: JSON.stringify(body), signal: t.signal });
+      const j = await r.json().catch(() => ({}));
+      if (r.status === 401 || r.status === 402) throw new Error('DeepSeek account problem: ' + ((j.error && j.error.message) || r.status));
+      if (!r.ok) { last = (j.error && j.error.message) || String(r.status); continue; }
+      const m = ((j.choices || [])[0] || {}).message || {}; const text = m.content || m.reasoning_content || '';
+      if (text) return { text, provider: `deepseek:${body.model}` };
+      last = 'empty reply';
+    } finally { t.done(); }
+  }
+  throw new Error('DeepSeek failed — ' + last);
+}
+async function callLocal(env, p) {
+  const t = withTimeout(120000);
+  try {
+    const body = { model: env.LOCAL_AI_MODEL || 'qwen3.5:4b', messages: [{ role: 'system', content: p.system }, { role: 'user', content: p.user }], temperature: 0.6, max_tokens: 3000, reasoning_effort: 'none', response_format: { type: 'json_schema', json_schema: { name: 'listing', schema: p.schema } } };
+    const r = await fetch(env.LOCAL_AI_URL.replace(/\/$/, '') + '/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-ibi-access': env.LOCAL_AI_CODE }, body: JSON.stringify(body), signal: t.signal });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(`Local engine ${r.status}`);
+    const text = (((j.choices || [])[0] || {}).message || {}).content || '';
+    return { text, provider: 'local:' + body.model };
+  } finally { t.done(); }
+}
+
+export const onRequestPost = handle(async ({ request, env }) => {
+  const provider = (env.AI_PROVIDER || (env.ANTHROPIC_API_KEY ? 'anthropic' : env.GEMINI_API_KEY ? 'gemini' : env.DEEPSEEK_API_KEY ? 'deepseek' : env.LOCAL_AI_URL && env.LOCAL_AI_CODE ? 'local' : '')).toLowerCase();
+  const impl = { anthropic: env.ANTHROPIC_API_KEY && callAnthropic, gemini: env.GEMINI_API_KEY && callGemini, deepseek: env.DEEPSEEK_API_KEY && callDeepSeek, local: env.LOCAL_AI_URL && env.LOCAL_AI_CODE && callLocal }[provider];
+  if (!impl) return notConfigured('Server AI');
+  if (!env.PLM_KV || !env.SESSION_SECRET) return notConfigured('Accounts (needed for AI quotas)');
+  const u = await requireUser(request, env);
+  if (!await rateLimit(env, 'ai:' + clientIp(request), 40, 600)) return err('Slow down — 40 AI calls per 10 minutes', 429);
+  const plan = planOf(u), limit = PLANS[plan].ai, used = await aiUsed(env, u.id);
+  if (used >= limit) return err(`You have used all ${limit} AI enhancements of your ${PLANS[plan].name} plan this month. Upgrade in Account & Plan, or add your own Gemini key in Settings.`, 402, { code: 'quota' });
+  const p = await request.json().catch(() => null);
+  if (!p || typeof p.system !== 'string' || typeof p.user !== 'string' || !p.schema) return err('Missing prompt');
+  if (p.system.length + p.user.length > 60000) return err('Prompt too long');
+  const r = await impl(env, p);
+  const draft = extractJson(r.text);
+  if (!draft) return err('The model returned no listing JSON; try again', 502, { provider: r.provider });
+  const key = `usage:${u.id}:${monthKey()}`; await env.PLM_KV.put(key, String(used + 1), { expirationTtl: 40 * 86400 });
+  return json({ draft, provider: r.provider, usage: { used: used + 1, limit, plan } });
+});

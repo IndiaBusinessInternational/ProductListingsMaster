@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
+<title>Listings Master — Owner console</title>
+<link rel="stylesheet" href="legal.css">
+<style>.box{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:14px}.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}input,select{padding:10px 12px;border:1px solid var(--line);border-radius:10px;font:inherit;background:var(--panel);color:var(--text)}table{width:100%;border-collapse:collapse}td,th{padding:8px;border-bottom:1px solid var(--line);text-align:left;font-size:14px}pre{white-space:pre-wrap;font-size:13px}</style>
+</head>
+<body>
+<header class="site"><div class="wrap"><span class="ver">v1.0.0</span><a class="brand" href="./"><span class="mark">PL</span>Owner console</a></div></header>
+<main class="wrap" style="padding:28px 20px 80px">
+  <div class="box"><h3>Admin token</h3><div class="row"><input type="password" id="tok" placeholder="ADMIN_TOKEN (kept in this browser only)" style="flex:1" autocomplete="off"><button class="btn" id="saveTok">Save</button><span class="muted small" id="tokState"></span></div></div>
+  <div class="box"><h3>Look up / set a plan</h3><div class="row"><input id="email" type="email" placeholder="account email" style="flex:1"><button class="btn" id="lookup">Look up</button></div><pre id="out" class="muted"></pre><div class="row" style="margin-top:8px"><select id="plan"><option value="free">Free</option><option value="starter">Starter</option><option value="pro">Pro</option><option value="business">Business</option></select><input id="months" type="number" value="1" min="1" max="36" style="width:90px"> months <button class="btn primary" id="setPlan">Set / extend plan</button></div><p class="small muted">Use this after a manual UPI payment: look up the email from the WhatsApp message, pick the plan, extend by the months paid.</p></div>
+  <div class="box"><h3>All accounts</h3><button class="btn" id="list">Load list</button><div id="listOut" style="margin-top:10px"></div></div>
+</main>
+<script>
+const API = 'api/admin'; const $ = s => document.querySelector(s);
+const tok = () => { try { return localStorage.getItem('plm:admin') || ''; } catch { return ''; } };
+$('#tokState').textContent = tok() ? '✓ saved' : 'not set';
+$('#saveTok').onclick = () => { try { localStorage.setItem('plm:admin', $('#tok').value.trim()); } catch {} $('#tok').value = ''; $('#tokState').textContent = tok() ? '✓ saved' : 'not set'; };
+async function call(method, qs, body) { const r = await fetch(API + (qs || ''), { method, headers: { 'x-admin-token': tok(), 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || r.status); return j; }
+$('#lookup').onclick = async () => { try { $('#out').textContent = JSON.stringify(await call('GET', '?email=' + encodeURIComponent($('#email').value.trim())), null, 2); } catch (e) { $('#out').textContent = 'Error: ' + e.message; } };
+$('#setPlan').onclick = async () => { try { const j = await call('POST', '', { email: $('#email').value.trim(), plan: $('#plan').value, months: +$('#months').value }); $('#out').textContent = 'Updated:\n' + JSON.stringify(j.user, null, 2); } catch (e) { $('#out').textContent = 'Error: ' + e.message; } };
+$('#list').onclick = async () => { try { const j = await call('GET', '?list=1'); $('#listOut').innerHTML = `<p class="small muted">${j.count} accounts</p><table><tr><th>Email</th><th>Name</th><th>Plan</th><th>Until</th><th>Created</th></tr>${j.users.map(u => `<tr><td>${u.email}</td><td>${u.name || ''}</td><td>${u.plan}</td><td>${u.planUntil ? u.planUntil.slice(0, 10) : ''}</td><td>${(u.createdAt || '').slice(0, 10)}</td></tr>`).join('')}</table>`; } catch (e) { $('#listOut').textContent = 'Error: ' + e.message; } };
+</script>
+</body>
+</html>
