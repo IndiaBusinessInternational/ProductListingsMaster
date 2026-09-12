@@ -93,7 +93,7 @@ async function callDeepSeek(env, p) {
   for (const extra of strategies) {
     const t = withTimeout(TIMEOUT_MS);
     try {
-      const body = { model: env.DEEPSEEK_MODEL || 'deepseek-v4-flash', max_tokens: 4096, temperature: 0.6, messages: [{ role: 'system', content: p.system }, { role: 'user', content: p.user + '\nReply with JSON only.' }], ...extra };
+      const body = { model: env.DEEPSEEK_MODEL || 'deepseek-flash', max_tokens: 4096, temperature: 0.6, messages: [{ role: 'system', content: p.system }, { role: 'user', content: p.user + '\nReply with JSON only.' }], ...extra };
       const r = await fetch('https://api.deepseek.com/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + env.DEEPSEEK_API_KEY }, body: JSON.stringify(body), signal: t.signal });
       const j = await r.json().catch(() => ({}));
       if (r.status === 401 || r.status === 402) throw new Error('DeepSeek account problem: ' + ((j.error && j.error.message) || r.status));
