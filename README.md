@@ -1,4 +1,4 @@
-# IBI Product Listings Master v1.2.1
+# IBI Product Listings Master v1.3.0
 
 **List once, sell everywhere.** A SaaS web app by India Business International: one master product record in, marketplace-ready listings out for Amazon India, Amazon Bazaar, Flipkart, Shopsy, Meesho, ShopClues, the IBI eCommerce Marketplace and more (JioMart, Snapdeal, Amazon.com, eBay, Etsy, Shopify, WooCommerce as preview channels, plus a no-code custom-channel builder), with dynamic SEO, compliance checks, a 0–100 listing score, exact upload sheets and a performance feedback loop.
 
@@ -35,7 +35,11 @@ tests/               node --test tests/   and   node tests/audit_actions.mjs (de
 3. Environment variables (Production):
    - `SESSION_SECRET` — long random string (accounts fail closed without it)
    - `ADMIN_TOKEN` — for `/admin`
-   - AI (any one; `AI_PROVIDER` picks when several exist): `ANTHROPIC_API_KEY` (+ optional `ANTHROPIC_MODEL`, default `claude-opus-5`), `GEMINI_API_KEY`, `DEEPSEEK_API_KEY`, or `LOCAL_AI_URL` + `LOCAL_AI_CODE`
+   - AI engines (v1.3.0): add the key of every engine you may want; the CEO picks the ACTIVE one in the hidden panel (5 quick taps on the version badge + CEO PIN, verified by IBI CEO Auth), stored in KV `cfg:ai_engine`. Default with nothing chosen = the office laptop. Only the chosen engine runs; there is no fallback.
+     - Laptop (default): `LOCAL_AI_CODE` (gateway access code); optional `LOCAL_AI_URL` (default `https://ai-local.indiabusinessinternational.online`), `LOCAL_AI_MODEL` (default `qwen3.5:9b`). Streams its reply (text/event-stream) because a 9B answer takes minutes.
+     - Qwen 3.8 Flash (cloud): `OPENROUTER_API_KEY` (optional `QWEN_MODEL`, default `qwen/qwen3.8-flash`)
+     - `GEMINI_API_KEY`, `ANTHROPIC_API_KEY` (+ optional `ANTHROPIC_MODEL`, default `claude-opus-5`), `DEEPSEEK_API_KEY`
+     - `AI_PROVIDER` is now only the fallback default when the CEO has never chosen (local | qwen | gemini | anthropic | deepseek | off)
    - Billing (optional): `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`; webhook URL `https://<host>/api/billing/webhook`, event `payment.captured`
 4. Custom domain `listingsmaster.indiabusinessinternational.online`.
 

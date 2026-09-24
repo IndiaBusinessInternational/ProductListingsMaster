@@ -1,5 +1,5 @@
 /* IBI Product Listings Master — storage (IndexedDB, local-first) + cloud sync client */
-export const APP_VERSION = '1.2.1';
+export const APP_VERSION = '1.3.0';
 const DB_NAME = 'plm', DB_VER = 1;
 const STORES = ['products', 'listings', 'perf', 'channels', 'settings', 'kwcache'];
 let dbp = null;
@@ -67,12 +67,47 @@ export async function importBackup(obj, { merge = true } = {}) {
 /* ── cloud client (Cloudflare Pages Functions under ../api/) ── */
 const API = new URL('../api/', location.href).href;
 async function call(path, opts = {}) {
-  const r = await fetch(API + path, { credentials: 'include', headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) }, ...opts, body: opts.body != null && typeof opts.body !== 'string' ? JSON.stringify(opts.body) : opts.body });
+  const { onProgress, ...fetchOpts } = opts;
+  const r = await fetch(API + path, { credentials: 'include', headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) }, ...fetchOpts, body: opts.body != null && typeof opts.body !== 'string' ? JSON.stringify(opts.body) : opts.body });
+  // v1.3.0: the laptop engine streams — progress events, then one 'done' or 'error'
+  if (r.ok && (r.headers.get('Content-Type') || '').includes('text/event-stream')) return readEvents(r, onProgress);
   const text = await r.text(); let data = null;
   try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text.slice(0, 200) }; }
   if (!r.ok) { const e = new Error((data && (data.error || data.message)) || `HTTP ${r.status}`); e.status = r.status; e.data = data; throw e; }
   return data;
 }
+async function readEvents(r, onProgress) {
+  const rd = r.body.getReader(), td = new TextDecoder(); let buf = '', final = null;
+  for (;;) {
+    const { value, done } = await rd.read(); if (done) break;
+    buf += td.decode(value, { stream: true }); let cut;
+    while ((cut = buf.indexOf('\n\n')) >= 0) {
+      const block = buf.slice(0, cut); buf = buf.slice(cut + 2);
+      const ev = (block.match(/^event: *(.+)$/m) || [])[1] || 'message';
+      let data = null; try { data = JSON.parse((block.match(/^data: *(.*)$/m) || [])[1] || 'null'); } catch { /* keep-alive */ }
+      if (ev === 'progress') { onProgress && onProgress(data || {}); continue; }
+      if (ev === 'done' || ev === 'error') final = { ev, data: data || {} };
+    }
+  }
+  if (!final) { const e = new Error('The AI connection closed before it finished. Please try again.'); e.status = 504; throw e; }
+  if (final.ev === 'error') { const e = new Error(final.data.error || 'AI failed'); e.status = final.data.status || 503; e.data = final.data; throw e; }
+  return final.data;
+}
+
+/* IBI CEO Auth — the ONE Apps Script that holds the CEO PIN. text/plain skips the CORS preflight
+ * Apps Script cannot answer. Google sometimes answers late or with its own HTML 404 when the
+ * account is busy, so a reply that is not JSON is retried. */
+export const CEO_AUTH_URL = 'https://script.google.com/macros/s/AKfycbxIW4j7m51JjX6yt38-a1X6XrDRyZp3czMYN8eXECfP9H2twjfrgLaozWCCl843AgWo0g/exec';
+export async function ceoVerify(pin, onRetry) {
+  for (let i = 1; i <= 3; i++) {
+    try {
+      const r = await fetch(CEO_AUTH_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'verifyCeo', pin }) });
+      return JSON.parse(await r.text());
+    } catch { if (i < 3) { onRetry && onRetry(i + 1); await new Promise(res => setTimeout(res, 2000 * i)); } }
+  }
+  throw new Error('Google\u2019s sign-in service is busy right now. Please wait a minute and try again.');
+}
+
 export const cloud = {
   state: { available: null, version: null, features: [], ai: false, billing: false, suggest: false, user: null, lastSync: null, error: null },
   async probe() {
@@ -88,8 +123,9 @@ export const cloud = {
   deleteAccount: password => call('auth/delete', { method: 'POST', body: { password } }),
   pull: () => call('data'),
   push: payload => call('data', { method: 'PUT', body: payload }),
-  ai: body => call('ai', { method: 'POST', body }),
-  helpAi: body => call('ai', { method: 'POST', body: { ...body, task: 'help' } }),
+  ai: (body, onProgress) => call('ai', { method: 'POST', body, onProgress }),
+  helpAi: (body, onProgress) => call('ai', { method: 'POST', body: { ...body, task: 'help' }, onProgress }),
+  aiConfig: body => call('aiconfig', { method: 'POST', body }),
   suggest: q => call('suggest?q=' + encodeURIComponent(q)),
   order: plan => call('billing/order', { method: 'POST', body: { plan } }),
   orderStatus: id => call('billing/status?order=' + encodeURIComponent(id)),

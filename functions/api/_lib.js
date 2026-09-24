@@ -1,7 +1,7 @@
 /* IBI Product Listings Master — shared backend helpers (Cloudflare Pages Functions).
  * Files starting with "_" are not routed. KV binding: PLM_KV. Env vars: see README.
  * VERSION moves with the app badge every release (frontend-backend-same-version). */
-export const VERSION = '1.2.1';
+export const VERSION = '1.3.0';
 export const PLANS = {
   free: { name: 'Free', price: 0, products: 25, ai: 10, custom: 1, seats: 1 },
   starter: { name: 'Starter', price: 499, products: 300, ai: 150, custom: 3, seats: 1 },
@@ -65,9 +65,50 @@ export async function readJson(request) { try { return await request.json(); } c
 export const isEmail = s => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(s || ''));
 export const configured = env => ({
   kv: !!env.PLM_KV, auth: !!(env.PLM_KV && env.SESSION_SECRET),
-  ai: !!(env.ANTHROPIC_API_KEY || env.GEMINI_API_KEY || env.DEEPSEEK_API_KEY || (env.LOCAL_AI_URL && env.LOCAL_AI_CODE)),
+  ai: AI_ENGINES.some(e => engineReady(env, e.id)),   // any engine usable; /api/version reports the ACTIVE one
   billing: !!(env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET && env.RAZORPAY_WEBHOOK_SECRET && env.PLM_KV), suggest: true, admin: !!env.ADMIN_TOKEN,
 });
 export function adminOk(request, env) { if (!env.ADMIN_TOKEN) return false; return safeEq(request.headers.get('x-admin-token') || '', env.ADMIN_TOKEN); }
 /* Wrap a handler so a thrown Response is returned and any other error becomes a clean 500. */
 export const handle = fn => async ctx => { try { return await fn(ctx); } catch (e) { if (e instanceof Response) return e; console.error(e); return err('Server error: ' + (e && e.message ? e.message : String(e)), 500); } };
+
+/* ── AI engines (v1.3.0) ──
+ * The CEO picks ONE engine from a hidden panel (5 taps on the version badge + the CEO PIN,
+ * checked by IBI CEO Auth). The choice lives in KV 'cfg:ai_engine'; with none saved the
+ * default is the office laptop's Qwen 3.5 9B (CEO decision, 24 Sep 2026). Only the chosen
+ * engine runs — there is never a fallback to another one. */
+export const DEFAULT_ENGINE = 'local';
+export const DEFAULT_LOCAL_AI_URL = 'https://ai-local.indiabusinessinternational.online';
+export const AI_ENGINES = [
+  { id: 'local',     label: 'Laptop server — Qwen 3.5 9B (free, streams, ~5 min, laptop off 10 PM–6 AM)', needs: 'LOCAL_AI_CODE' },
+  { id: 'qwen',      label: 'Qwen 3.8 Flash — cloud via OpenRouter', needs: 'OPENROUTER_API_KEY' },
+  { id: 'gemini',    label: 'Google Gemini 3.x Flash', needs: 'GEMINI_API_KEY' },
+  { id: 'anthropic', label: 'Anthropic Claude', needs: 'ANTHROPIC_API_KEY' },
+  { id: 'deepseek',  label: 'DeepSeek V4 Flash', needs: 'DEEPSEEK_API_KEY' },
+  { id: 'off',       label: 'OFF — pause AI for every customer', needs: '' },
+];
+export function engineReady(env, id) { const e = AI_ENGINES.find(x => x.id === id); return !!e && id !== 'off' && !!env[e.needs]; }
+export async function activeEngine(env) {
+  let id = '';
+  try { id = env.PLM_KV ? (await env.PLM_KV.get('cfg:ai_engine')) || '' : ''; } catch { /* KV hiccup: fall through to the default */ }
+  if (!AI_ENGINES.some(e => e.id === id)) id = String(env.AI_PROVIDER || DEFAULT_ENGINE).toLowerCase();
+  return AI_ENGINES.some(e => e.id === id) ? id : DEFAULT_ENGINE;
+}
+
+/* ── CEO check: the token comes from IBI CEO Auth (the one Apps Script that holds the CEO PIN);
+ * only CEO Auth can validate its signature, so the server asks it. Apps Script sometimes
+ * answers late or with its own HTML 404 when the Google account is busy, so try three times. */
+export const CEO_AUTH_URL = 'https://script.google.com/macros/s/AKfycbxIW4j7m51JjX6yt38-a1X6XrDRyZp3czMYN8eXECfP9H2twjfrgLaozWCCl843AgWo0g/exec';
+export async function ceoTokenOk(env, token) {
+  if (!token || typeof token !== 'string' || !/^\d+\.[A-Za-z0-9_=-]+$/.test(token)) return false;
+  if (+token.split('.')[0] < Date.now()) return false;
+  const url = env.CEO_AUTH_URL || CEO_AUTH_URL;
+  for (let i = 0; i < 3; i++) {
+    try {
+      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'checkToken', token }) });
+      const j = JSON.parse(await r.text());
+      return j && j.ok === true;
+    } catch { if (i < 2) await new Promise(res => setTimeout(res, 1500 * (i + 1))); }
+  }
+  throw json({ error: 'The CEO check service is busy; try again in a minute.', code: 'ceo_auth_busy' }, 503);
+}

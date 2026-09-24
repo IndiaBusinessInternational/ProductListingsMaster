@@ -16,7 +16,7 @@ const defined = new Set([...aBlock.matchAll(/^\s{2}(?:async\s+)?([A-Za-z0-9_]+)\
 const dead = [...used].filter(u => !defined.has(u));
 // referenced only from runtime-built action lists (help answers), so there is no
 // literal in the source to find - listing them keeps the info line honest.
-const DYNAMIC = /^(toggleTheme|goSync|goAccount|about|imgAdd|authSubmit|helpGo|helpWhatsApp|helpStarter)$/;
+const DYNAMIC = /^(toggleTheme|goSync|goAccount|about|ceoPanel|imgAdd|authSubmit|helpGo|helpWhatsApp|helpStarter)$/;
 const unused = [...defined].filter(d => !used.has(d) && !DYNAMIC.test(d));
 console.log(`actions used: ${used.size}, defined: ${defined.size}`);
 if (unused.length) console.log('defined but never referenced (info):', unused.join(', '));

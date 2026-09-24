@@ -1,10 +1,10 @@
-/* IBI Product Listings Master — application (v1.2.1)
+/* IBI Product Listings Master — application (v1.3.0)
  * Local-first SPA. Every control is wired through data-act="<name>" → A.<name>; tests/audit_actions.mjs
  * fails the build if a data-act names an action that does not exist.
  */
 import { CHANNELS, CHANNEL_MAP, exportSpec, blankChannel, SLOT_LABELS, RULE_LABELS } from './channels.js';
 import * as E from './engine.js';
-import { db, uid, now, loadSettings, saveSettings, secrets, exportBackup, importBackup, cloud, syncWorkspace, APP_VERSION } from './store.js';
+import { db, uid, now, loadSettings, saveSettings, secrets, exportBackup, importBackup, cloud, syncWorkspace, APP_VERSION, ceoVerify } from './store.js';
 import * as X from './exporter.js';
 import { enhance, helpAnswer } from './ai.js';
 import { HELP_ARTICLES, HELP_VERSION, searchHelp, answerFromKb, startersFor, renderHelpText } from './help.js';
@@ -459,7 +459,7 @@ function paintHelp() {
   const body = HELP.msgs.length
     ? HELP.msgs.map(m => m.role === 'you'
       ? `<div class="hmsg you">${esc(m.text)}</div>`
-      : `<div class="hmsg bot">${m.src ? `<span class="src">${esc(m.src)}</span>` : ''}${m.typing ? '<span class="typing">Looking that up…</span>' : renderHelpText(m.text, esc)}${(m.actions && m.actions.length) ? `<div class="acts">${m.actions.map(a => `<span class="chip" data-act="${esc(a.act)}" ${a.id ? `data-id="${esc(a.id)}"` : ''} ${a.q ? `data-q="${esc(a.q)}"` : ''}>${esc(a.label)}</span>`).join('')}</div>` : ''}</div>`).join('')
+      : `<div class="hmsg bot">${m.src ? `<span class="src">${esc(m.src)}</span>` : ''}${m.typing ? `<span class="typing">${esc(m.note || 'Looking that up…')}</span>` : renderHelpText(m.text, esc)}${(m.actions && m.actions.length) ? `<div class="acts">${m.actions.map(a => `<span class="chip" data-act="${esc(a.act)}" ${a.id ? `data-id="${esc(a.id)}"` : ''} ${a.q ? `data-q="${esc(a.q)}"` : ''}>${esc(a.label)}</span>`).join('')}</div>` : ''}</div>`).join('')
     : `<div class="help-greet">Ask me anything about using Listings Master — how to import your sheet, what Amazon allows in a title, why Meesho is different, what the score means. I answer from the built-in help, so I work offline too.</div>
        <div class="help-sugg">${startersFor(S.route.name).map(s => `<button data-act="helpStarter" data-q="${esc(s.q)}">${esc(s.q)}</button>`).join('')}</div>`;
   root.innerHTML = `<div class="help-panel" role="dialog" aria-label="Help assistant">
@@ -486,7 +486,7 @@ async function helpRun(q) {
     HELP.busy = true; const think = { role: 'bot', text: '', typing: true }; HELP.msgs.push(think); paintHelp();
     try {
       const { buildHelpPrompt } = await import('./help.js');
-      const r = await helpAnswer(buildHelpPrompt(q, kb.articles, { route: S.route.name }));
+      const r = await helpAnswer(buildHelpPrompt(q, kb.articles, { route: S.route.name }), pr => { think.note = `AI is writing the answer… ${fmtSecs(pr.secs)}`; paintHelp(); });
       HELP.msgs.splice(HELP.msgs.indexOf(think), 1);
       if (r && r.text && r.text.length > 20) { msg.text = r.text; msg.src = kb.title ? `${kb.title} · answered by AI` : 'Answered by AI'; }
     } catch { HELP.msgs.splice(HELP.msgs.indexOf(think), 1); /* the knowledge-base answer already stands */ }
@@ -673,12 +673,45 @@ const A = {
   helpGo(e, el) { HELP.open = false; paintHelp(); location.hash = el.dataset.id; },
   helpTopic(e, el) { go('help/' + el.dataset.id); },
   helpWhatsApp() { window.open('https://wa.me/918939414799?text=' + encodeURIComponent('Hi, I need help with IBI Product Listings Master: '), '_blank', 'noopener'); },
+  async ceoPanel() {
+    const r = await modal({ title: 'CEO access', body: `<p class="small muted">Enter the CEO PIN to choose the AI engine for every customer.</p><div class="field"><label for="ceoPin">CEO PIN</label><input class="input" id="ceoPin" type="password" autocomplete="off" inputmode="text"></div><p class="small" id="ceoMsg" role="status"></p>`, buttons: [{ label: 'Cancel', act: 'cancel' }, { label: 'Unlock', act: 'unlock', cls: 'primary' }],
+      onMount: root => {   // modal() empties the DOM before it resolves, so read the PIN on the click itself
+        const btn = root.querySelector('[data-mact=unlock]'), inp = root.querySelector('#ceoPin');
+        btn.addEventListener('click', () => { S.ceoPinVal = inp.value; }, true);
+        inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); btn.click(); } });
+      } });
+    const pin = S.ceoPinVal || ''; S.ceoPinVal = '';
+    if (!r) return;
+    if (!pin.trim()) { toast('Enter the PIN', 'warn'); return; }
+    let token = '';
+    try { toast('Checking the PIN…'); const v = await ceoVerify(pin.trim(), n => toast(`Google busy, retrying (${n} of 3)…`, 'warn')); if (!v || !v.ok) { toast((v && v.error) || 'Wrong PIN', 'err'); return; } token = v.token; }
+    catch (e) { toast(e.message, 'err'); return; }
+    let cfg;
+    try { cfg = await cloud.aiConfig({ token, action: 'get' }); } catch (e) { toast(e.message, 'err'); return; }
+    const opts = cfg.engines.map(e => `<label class="engopt"><input type="radio" name="eng" value="${esc(e.id)}" ${e.id === cfg.engine ? 'checked' : ''} ${e.ready ? '' : 'disabled'}><span>${esc(e.label)}${e.ready ? '' : ` <span class="tag warn">needs ${esc(e.needs)} in Cloudflare</span>`}${e.id === cfg.engine ? ' <span class="tag ok">active</span>' : ''}</span></label>`).join('');
+    const s = await modal({ title: 'AI engine for all customers', body: `<p class="small muted">Only the chosen engine runs. There is no fallback to another one.</p>${opts}`, buttons: [{ label: 'Close', act: 'cancel' }, { label: 'Set as active', act: 'save', cls: 'primary' }],
+      onMount: root => root.querySelector('[data-mact=save]').addEventListener('click', () => { S.ceoPick = (root.querySelector('input[name="eng"]:checked') || {}).value; }, true) });
+    const pick = S.ceoPick; S.ceoPick = '';
+    if (!s) return;
+    if (!pick || pick === cfg.engine) { toast('No change'); return; }
+    try { const o = await cloud.aiConfig({ token, action: 'set', engine: pick }); await cloud.probe(); paintAbout(); toast(`Active AI engine: ${(o.engines.find(e => e.id === o.engine) || {}).label || o.engine}`, 'ok'); }
+    catch (e) { toast(e.message, 'err'); }
+  },
   async about() { await modal({ title: 'About IBI Product Listings Master', body: `<dl class="kv"><dt>App</dt><dd>v${APP_VERSION}</dd><dt>Backend</dt><dd>${cloud.state.available ? `v${cloud.state.version}${cloud.state.version === APP_VERSION ? ' ✓ in step' : ' — differs from the app'}` : 'offline / local mode'}</dd><dt>Engine</dt><dd>v${E.ENGINE_VERSION}</dd><dt>Channels</dt><dd>${CHANNELS.length} built-in + ${S.custom.length} custom</dd><dt>Features</dt><dd>${cloud.state.available ? esc((cloud.state.features || []).join(', ') || '—') : '—'}</dd></dl><p class="small muted" style="margin-top:10px">India Business International · <a href="../" target="_blank">listingsmaster.indiabusinessinternational.online</a></p>` }); },
 };
 
 /* ───────── helpers used by actions ───────── */
 async function withBusy(el, fn) { if (el && el.classList) { if (el.classList.contains('busy')) return; el.classList.add('busy'); el.disabled = true; } try { await fn(); } catch (err) { console.error(err); toast(err.message || String(err), 'err'); } finally { if (el && el.classList) { el.classList.remove('busy'); el.disabled = false; } } }
 function pickFile(accept, cb) { const i = $('#fileInput'); i.accept = accept; i.value = ''; i.onchange = () => { const f = i.files[0]; if (f) cb(f); }; i.click(); }
+/* v1.3.0: the default engine streams for minutes, so each card says what is happening. */
+const fmtSecs = s => { s = Math.max(0, Math.round(+s || 0)); return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, '0')} s`; };
+function aiProgress(chid, pr) {
+  const card = $(`#card-${chid}`); if (!card) return;
+  let n = card.querySelector('.aiprog');
+  if (!pr) { if (n) n.remove(); return; }
+  if (!n) { n = document.createElement('div'); n.className = 'aiprog'; n.setAttribute('role', 'status'); card.prepend(n); }
+  n.textContent = `✨ AI is writing this listing… ${fmtSecs(pr.secs)}${pr.chars ? ` · ${pr.chars.toLocaleString('en-IN')} characters` : ''}. This can take a few minutes — keep this page open.`;
+}
 async function aiRun(chids, el) {
   const p = productById(S.studio.pid);
   await withBusy(el, async () => {
@@ -687,13 +720,13 @@ async function aiRun(chids, el) {
       const ch = registry()[chid]; let rec = listingRec(p.id, chid); if (!rec || !rec.current) rec = await generateFor(p.id, chid);
       const card = $(`#card-${chid}`); if (card) card.style.opacity = '.6';
       try {
-        const r = await enhance({ product: E.normalizeProduct(p), channel: ch, current: rec.current, suggestions: S.suggest[p.id] || [], mode: S.settings.ai.mode });
+        const r = await enhance({ product: E.normalizeProduct(p), channel: ch, current: rec.current, suggestions: S.suggest[p.id] || [], mode: S.settings.ai.mode, onProgress: pr => aiProgress(chid, pr) });
         const draft = E.enforceLimits(ch, { ...rec.current, ...r.draft }, p);
         for (const k of Object.keys(rec.locked || {})) if (rec.locked[k]) draft[k] = rec.current[k];
         rec.current = pickFields(draft); rec.versions.push({ v: rec.versions.length + 1, at: now(), source: 'ai', fields: { ...rec.current } }); await saveListing(rec); refreshCard(chid); done++;
         if (r.usage && cloud.state.user) { cloud.state.user.aiUsed = r.usage.used; paintNav(); }
       } catch (err) { toast(`${ch.short}: ${err.message}`, 'err'); if (/quota|limit|plan/i.test(err.message)) break; }
-      finally { if (card) card.style.opacity = ''; }
+      finally { if (card) card.style.opacity = ''; aiProgress(chid, null); }
     }
     if (done) toast(`AI enhanced ${done} listing${done > 1 ? 's' : ''} — every field re-checked by the rule engine`, 'ok');
   });
@@ -771,7 +804,13 @@ const debouncedProducts = debounce(() => { const v = $('#prodSearch'); const pos
 $('#themeBtn').addEventListener('click', () => A.toggleTheme());
 $('#syncBtn').addEventListener('click', () => A.goSync());
 $('#avatarBtn').addEventListener('click', () => A.goAccount());
-$('#versionBadge').addEventListener('click', () => A.about());
+/* One tap = About. Five quick taps = the hidden CEO panel (no visible entry, PIN asked every time). */
+{ let taps = 0, timer = null;
+  $('#versionBadge').addEventListener('click', () => {
+    taps++; clearTimeout(timer);
+    if (taps >= 5) { taps = 0; A.ceoPanel(); return; }
+    timer = setTimeout(() => { const n = taps; taps = 0; if (n < 5) A.about(); }, 600);
+  }); }
 document.addEventListener('click', e => { if (e.target.closest('.imgrow .im') && !e.target.closest('[data-act]')) { S.imgSel = +e.target.closest('.im').dataset.idx; paintImages(); } });
 window.addEventListener('hashchange', () => { const r = parseRoute(); if (r.name === 'products' && r.id) { S.route = r; paintNav(); vProductEdit(r.id).then(h => { $('#view').innerHTML = h; $$('textarea.auto').forEach(autosize); window.scrollTo(0, 0); }); } else render(); });
 window.addEventListener('online', () => { cloud.probe().then(() => { paintNav(); if (cloud.state.user) queueSync(); }); });

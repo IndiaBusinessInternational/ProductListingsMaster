@@ -67,10 +67,10 @@ async function viaGemini(prompt, key) {
  * instruction ("answer only from these articles"), and a failure here is never fatal —
  * the caller falls back to the knowledge-base answer it already has.
  * Does NOT consume the listing AI quota. */
-export async function helpAsk(prompt) {
+export async function helpAsk(prompt, onProgress) {
   const byok = secrets.get('gemini');
   if (cloud.state.available && cloud.state.ai) {
-    const r = await cloud.helpAi({ system: prompt.system, user: prompt.user });
+    const r = await cloud.helpAi({ system: prompt.system, user: prompt.user }, onProgress);
     if (r && r.text) return { text: r.text, provider: r.provider || 'server' };
     throw new Error('empty reply');
   }
@@ -91,7 +91,7 @@ export async function helpAsk(prompt) {
 export const helpAnswer = helpAsk;
 
 /* Returns {draft, provider, usage?}. Throws with a readable message. */
-export async function enhance({ product, channel, current, instructions, suggestions, mode }) {
+export async function enhance({ product, channel, current, instructions, suggestions, mode, onProgress }) {
   const prompt = buildPrompt(product, channel, current, { instructions, suggestions });
   const byok = secrets.get('gemini');
   if (mode === 'byok' || (mode !== 'server' && !cloud.state.ai && byok)) {
@@ -100,7 +100,7 @@ export async function enhance({ product, channel, current, instructions, suggest
   }
   if (!cloud.state.available) throw new Error(byok ? 'Server AI is offline; switch Settings → AI to “My own Gemini key”.' : 'AI needs the online service (or your own Gemini key in Settings → AI).');
   if (!cloud.state.ai) throw new Error(byok ? 'Server AI is not configured here; switch Settings → AI to “My own Gemini key”.' : 'AI is not configured on this server yet. Add your own Gemini key in Settings → AI, or sign in to a plan that includes AI.');
-  const r = await cloud.ai({ channel: channel.id, system: prompt.system, user: prompt.user, schema: prompt.schema });
+  const r = await cloud.ai({ channel: channel.id, system: prompt.system, user: prompt.user, schema: prompt.schema }, onProgress);
   const draft = r.draft || extractJson(r.text);
   if (!draft) throw new Error('The AI reply had no listing JSON. Try again.');
   return { draft, provider: r.provider || 'server', usage: r.usage };

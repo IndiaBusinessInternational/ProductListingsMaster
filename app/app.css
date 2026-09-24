@@ -202,6 +202,11 @@ code { font-family: var(--mono); font-size: .92em; background: var(--panel-2); p
 .hmsg .acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .hmsg .acts .chip { font-size: calc(12.5px * var(--ts)); padding: 5px 10px; }
 .hmsg.typing { color: var(--muted); font-style: italic; }
+.engopt { display: flex; gap: 12px; align-items: flex-start; padding: 12px; margin: 8px 0; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; line-height: 1.4; }
+.engopt input { width: 20px; height: 20px; margin: 1px 0 0; flex-shrink: 0; accent-color: var(--accent); }
+.engopt:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.engopt:has(input:disabled) { opacity: .65; cursor: not-allowed; }
+.aiprog { font-size: 14px; line-height: 1.45; padding: 10px 14px; margin: 0 0 10px; border-radius: 10px; background: var(--accent-soft); color: var(--accent-text); }
 .help-greet { color: var(--muted); font-size: calc(13.5px * var(--ts)); }
 .help-sugg { display: flex; flex-direction: column; gap: 6px; }
 .help-sugg button { text-align: left; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--panel); color: var(--accent-text); font-weight: 600; font-size: calc(13.5px * var(--ts)); cursor: pointer; }
@@ -215,11 +220,12 @@ code { font-family: var(--mono); font-size: .92em; background: var(--panel-2); p
 .help-answer h3 { color: var(--accent-text); }
 
 /* ── responsive ── */
-@media (max-width: 1080px) { .g4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } .studio { grid-template-columns: 1fr; } .studio .side { position: static; } }
+@media (max-width: 1080px) { .g4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } .studio { grid-template-columns: minmax(0, 1fr); } .studio > * { min-width: 0; } .studio .side { position: static; } }
 @media (max-width: 820px) {
   :root { --ts: 1.06; --side: 0px; }
   body { font-size: calc(16px * var(--ts)); }
-  .shell { grid-template-columns: 1fr; }
+  .shell { grid-template-columns: minmax(0, 1fr); }   /* bare 1fr = minmax(auto,1fr): the top bar's content stretched the page to 406px on a 360px phone */
+  .topbar { gap: 8px; min-width: 0; } .topbar > .iconbtn, .topbar > .avatar, .topbar > .badge-ver { flex-shrink: 0; } .brand { min-width: 0; overflow: hidden; } .brand > span:last-child { overflow: hidden; text-overflow: ellipsis; }
   .sidebar { display: none; }
   main { padding: 16px 14px 96px; }
   .g2, .g3, .g4 { grid-template-columns: 1fr; }

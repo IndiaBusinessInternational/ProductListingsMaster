@@ -1,8 +1,10 @@
 /* /api/ai — server-side listing enhancement. The page sends the prompt it built (system, user, JSON schema);
- * this Function adds the key, enforces the plan quota and returns the model's JSON draft. Provider is chosen by
- * env.AI_PROVIDER (anthropic | gemini | deepseek | local) or by whichever key exists. Raw HTTP on purpose: this
- * Pages project has no bundler, and one Function speaks to four providers. */
-import { json, err, notConfigured, requireUser, planOf, PLANS, aiUsed, monthKey, handle, rateLimit, clientIp } from './_lib.js';
+ * this Function adds the key, enforces the plan quota and returns the model's JSON draft. v1.3.0: the engine is
+ * the one the CEO chose in the hidden panel (KV 'cfg:ai_engine', default = the office laptop's Qwen 3.5 9B) and
+ * ONLY that engine runs — never a fallback. The laptop engine STREAMS (text/event-stream: progress heartbeats,
+ * then one 'done' or 'error' event) because a 9B reply takes minutes; the cloud engines answer as JSON.
+ * Raw HTTP on purpose: this Pages project has no bundler. */
+import { json, err, notConfigured, requireUser, planOf, PLANS, aiUsed, monthKey, handle, rateLimit, clientIp, activeEngine, engineReady, DEFAULT_LOCAL_AI_URL } from './_lib.js';
 
 const TIMEOUT_MS = 55000;
 function withTimeout(ms) { const c = new AbortController(); const t = setTimeout(() => c.abort(), ms); return { signal: c.signal, done: () => clearTimeout(t) }; }
@@ -105,22 +107,89 @@ async function callDeepSeek(env, p) {
   }
   throw new Error('DeepSeek failed — ' + last);
 }
-async function callLocal(env, p) {
-  const t = withTimeout(120000);
-  try {
-    const body = { model: env.LOCAL_AI_MODEL || 'qwen3.5:4b', messages: [{ role: 'system', content: p.system }, { role: 'user', content: p.user }], temperature: 0.6, max_tokens: 3000, reasoning_effort: 'none', response_format: { type: 'json_schema', json_schema: { name: 'listing', schema: p.schema } } };
-    const r = await fetch(env.LOCAL_AI_URL.replace(/\/$/, '') + '/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-ibi-access': env.LOCAL_AI_CODE }, body: JSON.stringify(body), signal: t.signal });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(`Local engine ${r.status}`);
-    const text = (((j.choices || [])[0] || {}).message || {}).content || '';
-    return { text, provider: 'local:' + body.model };
-  } finally { t.done(); }
+/* Qwen 3.8 Flash through OpenRouter (OpenAI-compatible). Its reasoning is ON by default and would
+ * eat the time budget, so it is switched off; if a knob is rejected the next dialect is tried. */
+async function callQwen(env, p) {
+  const model = env.QWEN_MODEL || 'qwen/qwen3.8-flash';
+  const strategies = [
+    { reasoning: { enabled: false }, response_format: { type: 'json_schema', json_schema: { name: 'listing', schema: p.schema } } },
+    { reasoning: { effort: 'none' }, response_format: { type: 'json_object' } },
+    {},
+  ];
+  let last = '';
+  for (const extra of strategies) {
+    const t = withTimeout(TIMEOUT_MS);
+    try {
+      const body = { model, max_tokens: 4096, temperature: 0.6, messages: [{ role: 'system', content: p.system }, { role: 'user', content: p.user + '\nReply with JSON only.' }], ...extra };
+      const r = await fetch('https://openrouter.ai/api/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + env.OPENROUTER_API_KEY, 'HTTP-Referer': 'https://listingsmaster.indiabusinessinternational.online', 'X-Title': 'IBI Product Listings Master' }, body: JSON.stringify(body), signal: t.signal });
+      const j = await r.json().catch(() => ({}));
+      if (r.status === 401 || r.status === 402) throw new Error('OpenRouter account problem: ' + ((j.error && j.error.message) || r.status));
+      if (!r.ok || j.error) { last = (j.error && j.error.message) || String(r.status); continue; }
+      const text = ((((j.choices || [])[0] || {}).message) || {}).content || '';
+      if (text) return { text, provider: `qwen:${j.model || model}` };
+      last = 'empty reply';
+    } finally { t.done(); }
+  }
+  throw new Error('Qwen failed — ' + last);
 }
 
-export const onRequestPost = handle(async ({ request, env }) => {
-  const provider = (env.AI_PROVIDER || (env.ANTHROPIC_API_KEY ? 'anthropic' : env.GEMINI_API_KEY ? 'gemini' : env.DEEPSEEK_API_KEY ? 'deepseek' : env.LOCAL_AI_URL && env.LOCAL_AI_CODE ? 'local' : '')).toLowerCase();
-  const impl = { anthropic: env.ANTHROPIC_API_KEY && callAnthropic, gemini: env.GEMINI_API_KEY && callGemini, deepseek: env.DEEPSEEK_API_KEY && callDeepSeek, local: env.LOCAL_AI_URL && env.LOCAL_AI_CODE && callLocal }[provider];
-  if (!impl) return notConfigured('Server AI');
+/* The office laptop (Qwen 3.5 9B, ~2.6 tokens/s on a 4 GB card): a reply takes minutes, far past any
+ * non-streaming timeout, so the gateway reply is STREAMED and turned into this Function's own events:
+ *   event: progress  {chars, secs}   every few seconds (also during the silent prefill — keeps every hop alive)
+ *   event: done      {...final JSON...}  or   event: error {error, status}
+ * finish(r) turns the model's text into the final payload (help answer, or listing draft + quota). */
+const LOCAL_MAX_MS = 9 * 60 * 1000;
+function localStream(env, p, ctx, finish) {
+  const model = env.LOCAL_AI_MODEL || 'qwen3.5:9b';
+  const base = String(env.LOCAL_AI_URL || DEFAULT_LOCAL_AI_URL).replace(/\/$/, '');
+  const { readable, writable } = new TransformStream();
+  const w = writable.getWriter(), te = new TextEncoder();
+  const send = (event, data) => w.write(te.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)).catch(() => {});
+  const t0 = Date.now(); let text = '';
+  const beat = setInterval(() => send('progress', { chars: text.length, secs: Math.round((Date.now() - t0) / 1000) }), 4000);
+  const work = (async () => {
+    const t = withTimeout(LOCAL_MAX_MS);
+    try {
+      send('progress', { chars: 0, secs: 0 });
+      const body = { model, messages: [{ role: 'system', content: p.system }, { role: 'user', content: p.user }], temperature: 0.6, max_tokens: 3000, stream: true, reasoning_effort: 'none', response_format: { type: 'json_schema', json_schema: { name: 'listing', schema: p.schema } } };
+      const r = await fetch(base + '/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-ibi-access': env.LOCAL_AI_CODE }, body: JSON.stringify(body), signal: t.signal });
+      if (!r.ok || !r.body) { console.error('local engine HTTP', r.status, (await r.text().catch(() => '')).slice(0, 300)); await send('error', { error: UNAVAILABLE, status: 503 }); return; }
+      const rd = r.body.getReader(), td = new TextDecoder(); let buf = '';
+      for (;;) {
+        const { value, done } = await rd.read(); if (done) break;
+        buf += td.decode(value, { stream: true }); let nl;
+        while ((nl = buf.indexOf('\n')) >= 0) {
+          const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+          if (!line.startsWith('data:')) continue; const d = line.slice(5).trim(); if (!d || d === '[DONE]') continue;
+          try { const c = ((JSON.parse(d).choices || [])[0] || {}).delta || {}; if (c.content) text += c.content; } catch { /* partial line */ }
+        }
+      }
+      const out = await finish({ text, provider: 'local:' + model });
+      await send(out.error ? 'error' : 'done', out);
+    } catch (e) {
+      console.error('local engine failed:', e && e.message);
+      await send('error', { error: UNAVAILABLE, status: 503 });
+    } finally { clearInterval(beat); t.done(); await w.close().catch(() => {}); }
+  })();
+  if (ctx && ctx.waitUntil) ctx.waitUntil(work);
+  return new Response(readable, { headers: { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' } });
+}
+
+/* What a customer sees when an engine fails — never the vendor, the account or the balance. */
+const UNAVAILABLE = 'AI is not available right now. Please try again in a few minutes. Your rule-engine listings are unaffected.';
+
+const IMPL = { anthropic: callAnthropic, gemini: callGemini, deepseek: callDeepSeek, qwen: callQwen };
+async function runCloud(impl, env, p) {
+  try { return await impl(env, p); }
+  catch (e) { console.error('AI engine failed:', e && e.message); throw err(UNAVAILABLE, 503, { code: 'ai_unavailable' }); }
+}
+
+export const onRequestPost = handle(async ctx => {
+  const { request, env } = ctx;
+  const engine = await activeEngine(env);
+  if (engine === 'off') return err('AI enhancement is paused right now. Your rule-engine listings are unaffected.', 503, { code: 'ai_off' });
+  if (!engineReady(env, engine)) return notConfigured('Server AI');
+  const impl = IMPL[engine];   // undefined for 'local' — that one streams
 
   /* ── help assistant ──
    * The page has already retrieved its own help articles and sends them as the only
@@ -132,10 +201,11 @@ export const onRequestPost = handle(async ({ request, env }) => {
     if (!await rateLimit(env, 'help:' + clientIp(request), 25, 3600)) return err('Too many help questions from this network; try again in an hour, or WhatsApp +91 89394 14799.', 429);
     if (typeof peek.system !== 'string' || typeof peek.user !== 'string') return err('Missing prompt');
     if (peek.system.length + peek.user.length > 24000) return err('Prompt too long');
-    const r = await impl(env, { system: peek.system, user: peek.user, schema: { type: 'object', properties: { answer: { type: 'string' } }, required: ['answer'] } });
-    const text = unwrapText(r.text);
-    if (!text) return err('The assistant had no answer; the help topics below still apply.', 502);
-    return json({ text: text.slice(0, 4000), provider: r.provider });
+    const hp = { system: peek.system, user: peek.user, schema: { type: 'object', properties: { answer: { type: 'string' } }, required: ['answer'] } };
+    const finishHelp = r => { const text = unwrapText(r.text); return text ? { text: text.slice(0, 4000), provider: r.provider } : { error: 'The assistant had no answer; the help topics below still apply.', status: 502 }; };
+    if (engine === 'local') return localStream(env, hp, ctx, async r => finishHelp(r));
+    const out = finishHelp(await runCloud(impl, env, hp));
+    return out.error ? err(out.error, out.status) : json(out);
   }
 
   if (!env.PLM_KV || !env.SESSION_SECRET) return notConfigured('Accounts (needed for AI quotas)');
@@ -146,9 +216,15 @@ export const onRequestPost = handle(async ({ request, env }) => {
   const p = await request.json().catch(() => null);
   if (!p || typeof p.system !== 'string' || typeof p.user !== 'string' || !p.schema) return err('Missing prompt');
   if (p.system.length + p.user.length > 60000) return err('Prompt too long');
-  const r = await impl(env, p);
-  const draft = extractJson(r.text);
-  if (!draft) return err('The model returned no listing JSON; try again', 502, { provider: r.provider });
-  const key = `usage:${u.id}:${monthKey()}`; await env.PLM_KV.put(key, String(used + 1), { expirationTtl: 40 * 86400 });
-  return json({ draft, provider: r.provider, usage: { used: used + 1, limit, plan } });
+  // Quota is counted only for a listing that actually came back.
+  const finishListing = async r => {
+    const draft = extractJson(r.text);
+    if (!draft) return { error: 'The model returned no listing JSON; try again', status: 502 };
+    const n = (await aiUsed(env, u.id)) + 1;
+    await env.PLM_KV.put(`usage:${u.id}:${monthKey()}`, String(n), { expirationTtl: 40 * 86400 });
+    return { draft, provider: r.provider, usage: { used: n, limit, plan } };
+  };
+  if (engine === 'local') return localStream(env, p, ctx, finishListing);
+  const out = await finishListing(await runCloud(impl, env, p));
+  return out.error ? err(out.error, out.status) : json(out);
 });
