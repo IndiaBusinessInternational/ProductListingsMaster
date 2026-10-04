@@ -1,4 +1,4 @@
-/* IBI Product Listings Master — application (v1.3.0)
+/* IBI Product Listings Master — application (v1.4.0)
  * Local-first SPA. Every control is wired through data-act="<name>" → A.<name>; tests/audit_actions.mjs
  * fails the build if a data-act names an action that does not exist.
  */
@@ -13,9 +13,9 @@ import * as IBIStock from './ibistock.js';
 
 export const PLANS = {
   free: { name: 'Free', price: 0, products: 25, ai: 10, custom: 1, seats: 1, blurb: 'Rule-engine listings for every channel, unlimited local products, 25 in cloud sync.' },
-  starter: { name: 'Starter', price: 499, products: 300, ai: 150, custom: 3, seats: 1, blurb: 'For a growing seller: cloud sync, 150 AI enhancements a month, 3 custom channels.' },
-  pro: { name: 'Pro', price: 1499, products: 3000, ai: 600, custom: 99, seats: 3, blurb: 'Teams and agencies: performance loop, unlimited custom channels, 3 seats.', popular: true },
-  business: { name: 'Business', price: 3999, products: 25000, ai: 2500, custom: 99, seats: 10, blurb: 'Large catalogues: 25,000 products, 2,500 AI enhancements, 10 seats, priority support.' },
+  starter: { name: 'Starter', price: 1499, products: 300, ai: 150, custom: 3, seats: 1, blurb: 'For a growing seller: cloud sync, 150 AI enhancements a month, 3 custom channels.' },
+  pro: { name: 'Pro', price: 4499, products: 3000, ai: 600, custom: 99, seats: 3, blurb: 'Teams and agencies: performance loop, unlimited custom channels, 3 seats.', popular: true },
+  business: { name: 'Business', price: 11999, products: 25000, ai: 2500, custom: 99, seats: 10, blurb: 'Large catalogues: 25,000 products, 2,500 AI enhancements, 10 seats, priority support.' },
 };
 
 const S = { products: [], listings: [], perf: [], custom: [], settings: null, route: { name: 'dashboard', id: null, sub: null }, suggest: {}, busy: {} };

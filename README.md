@@ -1,4 +1,4 @@
-# IBI Product Listings Master v1.3.0
+# IBI Product Listings Master v1.4.0
 
 **List once, sell everywhere.** A SaaS web app by India Business International: one master product record in, marketplace-ready listings out for Amazon India, Amazon Bazaar, Flipkart, Shopsy, Meesho, ShopClues, the IBI eCommerce Marketplace and more (JioMart, Snapdeal, Amazon.com, eBay, Etsy, Shopify, WooCommerce as preview channels, plus a no-code custom-channel builder), with dynamic SEO, compliance checks, a 0–100 listing score, exact upload sheets and a performance feedback loop.
 
@@ -50,9 +50,9 @@ Without any of this the site still works fully in local mode (rule engine, expor
 | Plan | Price | Cloud products | AI / month | Custom channels | Seats |
 |---|---|---|---|---|---|
 | Free | ₹0 | 25 | 10 | 1 | 1 |
-| Starter | ₹499 | 300 | 150 | 3 | 1 |
-| Pro | ₹1,499 | 3,000 | 600 | unlimited | 3 |
-| Business | ₹3,999 | 25,000 | 2,500 | unlimited | 10 |
+| Starter | ₹1,499 | 300 | 150 | 3 | 1 |
+| Pro | ₹4,499 | 3,000 | 600 | unlimited | 3 |
+| Business | ₹11,999 | 25,000 | 2,500 | unlimited | 10 |
 
 Local use is unlimited on every plan. Limits live in `functions/api/_lib.js` (enforced) and `app/app.js` (displayed) — change both.
 

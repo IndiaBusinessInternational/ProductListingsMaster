@@ -228,9 +228,9 @@ How many custom channels you may keep depends on your plan: one on Free, three o
     body: `All prices include GST and are for one month. Plans do not renew automatically.
 
 - **Free, ₹0** — every channel, unlimited products on this device, 25 products in cloud sync, 10 AI enhancements a month, 1 custom channel.
-- **Starter, ₹499** — 300 products in sync, 150 AI a month, 3 custom channels.
-- **Pro, ₹1,499** — 3,000 products, 600 AI, unlimited custom channels, 3 seats.
-- **Business, ₹3,999** — 25,000 products, 2,500 AI, unlimited custom channels, 10 seats.
+- **Starter, ₹1,499** — 300 products in sync, 150 AI a month, 3 custom channels.
+- **Pro, ₹4,499** — 3,000 products, 600 AI, unlimited custom channels, 3 seats.
+- **Business, ₹11,999** — 25,000 products, 2,500 AI, unlimited custom channels, 10 seats.
 
 **Local use is unlimited on every plan.** The product limit applies only to the cloud copy, so the Free plan never stops you working — it limits how much syncs between devices.
 

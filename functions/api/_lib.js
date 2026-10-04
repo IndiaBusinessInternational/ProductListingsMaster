@@ -1,12 +1,12 @@
 /* IBI Product Listings Master — shared backend helpers (Cloudflare Pages Functions).
  * Files starting with "_" are not routed. KV binding: PLM_KV. Env vars: see README.
  * VERSION moves with the app badge every release (frontend-backend-same-version). */
-export const VERSION = '1.3.0';
+export const VERSION = '1.4.0';
 export const PLANS = {
   free: { name: 'Free', price: 0, products: 25, ai: 10, custom: 1, seats: 1 },
-  starter: { name: 'Starter', price: 499, products: 300, ai: 150, custom: 3, seats: 1 },
-  pro: { name: 'Pro', price: 1499, products: 3000, ai: 600, custom: 99, seats: 3 },
-  business: { name: 'Business', price: 3999, products: 25000, ai: 2500, custom: 99, seats: 10 },
+  starter: { name: 'Starter', price: 1499, products: 300, ai: 150, custom: 3, seats: 1 },
+  pro: { name: 'Pro', price: 4499, products: 3000, ai: 600, custom: 99, seats: 3 },
+  business: { name: 'Business', price: 11999, products: 25000, ai: 2500, custom: 99, seats: 10 },
 };
 export const SESSION_COOKIE = 'plm_session';
 export const SESSION_DAYS = 30;
