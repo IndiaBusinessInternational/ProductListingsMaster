@@ -1,12 +1,14 @@
 /* /api/ai — server-side listing enhancement. The page sends the prompt it built (system, user, JSON schema);
  * this Function adds the key, enforces the plan quota and returns the model's JSON draft. v1.3.0: the engine is
- * the one the CEO chose in the hidden panel (KV 'cfg:ai_engine', default = the office laptop's Qwen 3.5 9B) and
+ * the one the CEO chose in the hidden panel (KV 'cfg:ai_engine', default = the office laptop's local Qwen) and
  * ONLY that engine runs — never a fallback. The laptop engine STREAMS (text/event-stream: progress heartbeats,
- * then one 'done' or 'error' event) because a 9B reply takes minutes; the cloud engines answer as JSON.
+ * then one 'done' or 'error' event) because a local reply takes many minutes; the cloud engines answer as JSON.
+ * v1.4.1 (7 Oct 2026): the laptop now runs ONE model, Qwen 3.8 27B (~1.1–1.2 tokens/s), so the local path has
+ * its own long cap (LOCAL_MAX_MS); TIMEOUT_MS below is for the CLOUD engines only.
  * Raw HTTP on purpose: this Pages project has no bundler. */
 import { json, err, notConfigured, requireUser, planOf, PLANS, aiUsed, monthKey, handle, rateLimit, clientIp, activeEngine, engineReady, DEFAULT_LOCAL_AI_URL } from './_lib.js';
 
-const TIMEOUT_MS = 55000;
+const TIMEOUT_MS = 55000;   // cloud engines only — the local engine streams under LOCAL_MAX_MS
 function withTimeout(ms) { const c = new AbortController(); const t = setTimeout(() => c.abort(), ms); return { signal: c.signal, done: () => clearTimeout(t) }; }
 function extractJson(text) {
   if (!text) return null; const s = String(text).replace(/```(?:json)?/g, '');
@@ -133,14 +135,21 @@ async function callQwen(env, p) {
   throw new Error('Qwen failed — ' + last);
 }
 
-/* The office laptop (Qwen 3.5 9B, ~2.6 tokens/s on a 4 GB card): a reply takes minutes, far past any
- * non-streaming timeout, so the gateway reply is STREAMED and turned into this Function's own events:
+/* The office laptop (Qwen 3.8 27B since 7 Oct 2026 — the CEO's choice; qwen3.5:9b/4b are now aliases of it).
+ * Measured warm: prompt reading ~40 tokens/s (a 1,337-token listing prompt = 33 s to the first token), writing
+ * ~1.1–1.2 tokens/s, so a ~1,100-token listing takes ~15–20 minutes. Far past any non-streaming timeout, so the
+ * gateway reply is STREAMED (the tunnel's 100 s limit is on the FIRST byte only) and turned into this Function's
+ * own events:
  *   event: progress  {chars, secs}   every few seconds (also during the silent prefill — keeps every hop alive)
  *   event: done      {...final JSON...}  or   event: error {error, status}
  * finish(r) turns the model's text into the final payload (help answer, or listing draft + quota). */
-const LOCAL_MAX_MS = 9 * 60 * 1000;
-function localStream(env, p, ctx, finish) {
-  const model = env.LOCAL_AI_MODEL || 'qwen3.5:9b';
+/* Budget by OUTPUT tokens: LOCAL_MAX_TOKENS at ~1.1 tok/s ≈ 36 min, plus prompt reading and a queue wait. A
+ * complete listing is ~1,100–1,400 tokens of JSON; the help answer is a few sentences. */
+const LOCAL_MAX_MS = 45 * 60 * 1000;
+const LOCAL_MAX_TOKENS = 2400, LOCAL_HELP_MAX_TOKENS = 700;
+export const DEFAULT_LOCAL_AI_MODEL = 'qwen3.8:27b';
+function localStream(env, p, ctx, finish, maxTokens = LOCAL_MAX_TOKENS) {
+  const model = env.LOCAL_AI_MODEL || DEFAULT_LOCAL_AI_MODEL;
   const base = String(env.LOCAL_AI_URL || DEFAULT_LOCAL_AI_URL).replace(/\/$/, '');
   const { readable, writable } = new TransformStream();
   const w = writable.getWriter(), te = new TextEncoder();
@@ -151,7 +160,7 @@ function localStream(env, p, ctx, finish) {
     const t = withTimeout(LOCAL_MAX_MS);
     try {
       send('progress', { chars: 0, secs: 0 });
-      const body = { model, messages: [{ role: 'system', content: p.system }, { role: 'user', content: p.user }], temperature: 0.6, max_tokens: 3000, stream: true, reasoning_effort: 'none', response_format: { type: 'json_schema', json_schema: { name: 'listing', schema: p.schema } } };
+      const body = { model, messages: [{ role: 'system', content: p.system }, { role: 'user', content: p.user }], temperature: 0.6, max_tokens: maxTokens, stream: true, reasoning_effort: 'none', response_format: { type: 'json_schema', json_schema: { name: 'listing', schema: p.schema } } };
       const r = await fetch(base + '/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-ibi-access': env.LOCAL_AI_CODE }, body: JSON.stringify(body), signal: t.signal });
       if (!r.ok || !r.body) { console.error('local engine HTTP', r.status, (await r.text().catch(() => '')).slice(0, 300)); await send('error', { error: UNAVAILABLE, status: 503 }); return; }
       const rd = r.body.getReader(), td = new TextDecoder(); let buf = '';
@@ -202,8 +211,8 @@ export const onRequestPost = handle(async ctx => {
     if (typeof peek.system !== 'string' || typeof peek.user !== 'string') return err('Missing prompt');
     if (peek.system.length + peek.user.length > 24000) return err('Prompt too long');
     const hp = { system: peek.system, user: peek.user, schema: { type: 'object', properties: { answer: { type: 'string' } }, required: ['answer'] } };
-    const finishHelp = r => { const text = unwrapText(r.text); return text ? { text: text.slice(0, 4000), provider: r.provider } : { error: 'The assistant had no answer; the help topics below still apply.', status: 502 }; };
-    if (engine === 'local') return localStream(env, hp, ctx, async r => finishHelp(r));
+    const finishHelp = r => { const text = unwrapText(r.text); return text ? { text: text.slice(0, 4000), provider: r.provider } : { error: 'The assistant had no answer; the help topics below still apply.', status: 424 }; };
+    if (engine === 'local') return localStream(env, hp, ctx, async r => finishHelp(r), LOCAL_HELP_MAX_TOKENS);
     const out = finishHelp(await runCloud(impl, env, hp));
     return out.error ? err(out.error, out.status) : json(out);
   }
@@ -219,7 +228,7 @@ export const onRequestPost = handle(async ctx => {
   // Quota is counted only for a listing that actually came back.
   const finishListing = async r => {
     const draft = extractJson(r.text);
-    if (!draft) return { error: 'The model returned no listing JSON; try again', status: 502 };
+    if (!draft) return { error: 'The model returned no listing JSON; try again', status: 424 };
     const n = (await aiUsed(env, u.id)) + 1;
     await env.PLM_KV.put(`usage:${u.id}:${monthKey()}`, String(n), { expirationTtl: 40 * 86400 });
     return { draft, provider: r.provider, usage: { used: n, limit, plan } };

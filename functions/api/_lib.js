@@ -1,7 +1,7 @@
 /* IBI Product Listings Master — shared backend helpers (Cloudflare Pages Functions).
  * Files starting with "_" are not routed. KV binding: PLM_KV. Env vars: see README.
  * VERSION moves with the app badge every release (frontend-backend-same-version). */
-export const VERSION = '1.4.0';
+export const VERSION = '1.4.1';
 export const PLANS = {
   free: { name: 'Free', price: 0, products: 25, ai: 10, custom: 1, seats: 1 },
   starter: { name: 'Starter', price: 1499, products: 300, ai: 150, custom: 3, seats: 1 },
@@ -75,12 +75,12 @@ export const handle = fn => async ctx => { try { return await fn(ctx); } catch (
 /* ── AI engines (v1.3.0) ──
  * The CEO picks ONE engine from a hidden panel (5 taps on the version badge + the CEO PIN,
  * checked by IBI CEO Auth). The choice lives in KV 'cfg:ai_engine'; with none saved the
- * default is the office laptop's Qwen 3.5 9B (CEO decision, 24 Sep 2026). Only the chosen
- * engine runs — there is never a fallback to another one. */
+ * default is the office laptop's local Qwen (CEO decision, 24 Sep 2026; the laptop's one model is Qwen 3.8 27B
+ * since 7 Oct 2026). Only the chosen engine runs — there is never a fallback to another one. */
 export const DEFAULT_ENGINE = 'local';
 export const DEFAULT_LOCAL_AI_URL = 'https://ai-local.indiabusinessinternational.online';
 export const AI_ENGINES = [
-  { id: 'local',     label: 'Laptop server — Qwen 3.5 9B (free, streams, ~5 min, laptop off 10 PM–6 AM)', needs: 'LOCAL_AI_CODE' },
+  { id: 'local',     label: 'Laptop server — Qwen 3.8 27B (free, streams, ~15–20 min per listing, laptop off 10 PM–6 AM)', needs: 'LOCAL_AI_CODE' },
   { id: 'qwen',      label: 'Qwen 3.8 Flash — cloud via OpenRouter', needs: 'OPENROUTER_API_KEY' },
   { id: 'gemini',    label: 'Google Gemini 3.x Flash', needs: 'GEMINI_API_KEY' },
   { id: 'anthropic', label: 'Anthropic Claude', needs: 'ANTHROPIC_API_KEY' },

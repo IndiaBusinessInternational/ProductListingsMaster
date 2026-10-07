@@ -1,4 +1,4 @@
-/* IBI Product Listings Master — application (v1.4.0)
+/* IBI Product Listings Master — application (v1.4.1)
  * Local-first SPA. Every control is wired through data-act="<name>" → A.<name>; tests/audit_actions.mjs
  * fails the build if a data-act names an action that does not exist.
  */
@@ -703,14 +703,15 @@ const A = {
 /* ───────── helpers used by actions ───────── */
 async function withBusy(el, fn) { if (el && el.classList) { if (el.classList.contains('busy')) return; el.classList.add('busy'); el.disabled = true; } try { await fn(); } catch (err) { console.error(err); toast(err.message || String(err), 'err'); } finally { if (el && el.classList) { el.classList.remove('busy'); el.disabled = false; } } }
 function pickFile(accept, cb) { const i = $('#fileInput'); i.accept = accept; i.value = ''; i.onchange = () => { const f = i.files[0]; if (f) cb(f); }; i.click(); }
-/* v1.3.0: the default engine streams for minutes, so each card says what is happening. */
+/* v1.3.0: the default engine streams for minutes, so each card says what is happening.
+ * v1.4.1: the laptop's one model is now Qwen 3.8 27B (~1.1 tokens/s) — a listing takes ~15–20 min. */
 const fmtSecs = s => { s = Math.max(0, Math.round(+s || 0)); return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, '0')} s`; };
 function aiProgress(chid, pr) {
   const card = $(`#card-${chid}`); if (!card) return;
   let n = card.querySelector('.aiprog');
   if (!pr) { if (n) n.remove(); return; }
   if (!n) { n = document.createElement('div'); n.className = 'aiprog'; n.setAttribute('role', 'status'); card.prepend(n); }
-  n.textContent = `✨ AI is writing this listing… ${fmtSecs(pr.secs)}${pr.chars ? ` · ${pr.chars.toLocaleString('en-IN')} characters` : ''}. This can take a few minutes — keep this page open.`;
+  n.textContent = `✨ AI is writing this listing… ${fmtSecs(pr.secs)}${pr.chars ? ` · ${pr.chars.toLocaleString('en-IN')} characters` : ''}. This can take 15–20 minutes — keep this page open.`;
 }
 async function aiRun(chids, el) {
   const p = productById(S.studio.pid);

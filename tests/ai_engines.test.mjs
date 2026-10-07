@@ -76,7 +76,7 @@ test('laptop engine streams progress then a listing, and counts quota once', asy
   const env = { PLM_KV: fakeKV(), SESSION_SECRET: 'test-secret-1234567890', LOCAL_AI_CODE: 'secret-code' };
   const ck = await signedIn(env);
   const js = JSON.stringify(LISTING); fakeServices({ gatewayChunks: [js.slice(0, 20), js.slice(20)] });
-  const request = req('/api/ai', { method: 'POST', cookie: ck, body: { system: 's', user: 'u', schema: { type: 'object' } } });
+  const request = req('/api/ai', { method: 'POST', cookie: ck, body: { system: 's', user: 'u', schema: { type: 'object' }, maxTokens: 99999 } });
   const res = await ai(ctx(request, env));
   assert.match(res.headers.get('Content-Type'), /event-stream/);
   const ev = await readSse(res); await Promise.all(waitUntils);
@@ -84,7 +84,8 @@ test('laptop engine streams progress then a listing, and counts quota once', asy
   const done = ev.find(e => e.ev === 'done'); assert.ok(done, 'done event');
   assert.equal(done.data.draft.title, LISTING.title); assert.equal(done.data.usage.used, 1);
   const g = calls.find(c => c.u.includes('ai-local'));
-  assert.equal(g.body.model, 'qwen3.5:9b'); assert.equal(g.body.stream, true); assert.equal(g.body.reasoning_effort, 'none');
+  assert.equal(g.body.model, 'qwen3.8:27b', 'v1.4.1: the laptop runs Qwen 3.8 27B');
+  assert.equal(g.body.max_tokens, 2400, 'output budget is set server-side; a client maxTokens is ignored'); assert.equal(g.body.stream, true); assert.equal(g.body.reasoning_effort, 'none');
   assert.equal(g.headers['x-ibi-access'], 'secret-code');
   const usage = [...env.PLM_KV.m.entries()].find(([k]) => k.startsWith('usage:'));
   assert.equal(usage[1], '1');
@@ -96,6 +97,7 @@ test('laptop help answer streams; a gateway failure is a neutral error', async (
   fakeServices({ gatewayChunks: ['{"answer":"The Free plan costs nothing."}'] });
   let ev = await readSse(await ai(ctx(req('/api/ai', { method: 'POST', body: { task: 'help', system: 's', user: 'u' } }), env)));
   assert.equal(ev.find(e => e.ev === 'done').data.text, 'The Free plan costs nothing.');
+  assert.equal(calls.find(c => c.u.includes('ai-local')).body.max_tokens, 700, 'help answers get a short output budget');
   globalThis.fetch = async () => new Response('gateway down', { status: 502 });
   ev = await readSse(await ai(ctx(req('/api/ai', { method: 'POST', body: { task: 'help', system: 's', user: 'u' } }), env)));
   const e = ev.find(x => x.ev === 'error'); assert.ok(e);
