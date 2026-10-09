@@ -109,10 +109,18 @@ async function callDeepSeek(env, p) {
   }
   throw new Error('DeepSeek failed — ' + last);
 }
-/* Qwen 3.8 Flash through OpenRouter (OpenAI-compatible). Its reasoning is ON by default and would
- * eat the time budget, so it is switched off; if a knob is rejected the next dialect is tried. */
+/* The cloud engine through OpenRouter (OpenAI-compatible). Its reasoning is ON by default and would
+ * eat the time budget, so it is switched off; if a knob is rejected the next dialect is tried.
+ * v1.4.2 (CEO, 9 Oct 2026: "Use DeepSeek V4.1 Flash as a default from Open Router, if it fails then use Qwen 3.8
+ * Flash as secondary option"): ONE request carries OpenRouter's `models` list — DeepSeek V4.1 Flash first, Qwen 3.8
+ * Flash as OpenRouter's automatic backup (Qwen's single provider was measured refusing 60+ calls in one morning with
+ * "temporarily rate-limited upstream"). The engine id stays 'qwen' so saved settings keep working. */
+export function cloudModels(env) {
+  const a = env.CLOUD_MODEL || 'deepseek/deepseek-v4.1-flash', b = env.QWEN_MODEL || 'qwen/qwen3.8-flash';
+  return a === b ? [a] : [a, b];
+}
 async function callQwen(env, p) {
-  const model = env.QWEN_MODEL || 'qwen/qwen3.8-flash';
+  const models = cloudModels(env), model = models[0];
   const strategies = [
     { reasoning: { enabled: false }, response_format: { type: 'json_schema', json_schema: { name: 'listing', schema: p.schema } } },
     { reasoning: { effort: 'none' }, response_format: { type: 'json_object' } },
@@ -122,7 +130,7 @@ async function callQwen(env, p) {
   for (const extra of strategies) {
     const t = withTimeout(TIMEOUT_MS);
     try {
-      const body = { model, max_tokens: 4096, temperature: 0.6, messages: [{ role: 'system', content: p.system }, { role: 'user', content: p.user + '\nReply with JSON only.' }], ...extra };
+      const body = { models, max_tokens: 4096, temperature: 0.6, messages: [{ role: 'system', content: p.system }, { role: 'user', content: p.user + '\nReply with JSON only.' }], ...extra };
       const r = await fetch('https://openrouter.ai/api/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + env.OPENROUTER_API_KEY, 'HTTP-Referer': 'https://listingsmaster.indiabusinessinternational.online', 'X-Title': 'IBI Product Listings Master' }, body: JSON.stringify(body), signal: t.signal });
       const j = await r.json().catch(() => ({}));
       if (r.status === 401 || r.status === 402) throw new Error('OpenRouter account problem: ' + ((j.error && j.error.message) || r.status));
@@ -132,7 +140,7 @@ async function callQwen(env, p) {
       last = 'empty reply';
     } finally { t.done(); }
   }
-  throw new Error('Qwen failed — ' + last);
+  throw new Error('Cloud AI failed — ' + last);
 }
 
 /* The office laptop (Qwen 3.8 27B since 7 Oct 2026 — the CEO's choice; qwen3.5:9b/4b are now aliases of it).

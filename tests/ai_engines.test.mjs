@@ -114,7 +114,7 @@ test('Qwen via OpenRouter: reasoning off, JSON back; a billing failure never rea
   let j = await r.json();
   assert.equal(r.status, 200); assert.equal(j.draft.title, LISTING.title);
   const q = calls.find(c => c.u.includes('openrouter'));
-  assert.equal(q.body.model, 'qwen/qwen3.8-flash'); assert.deepEqual(q.body.reasoning, { enabled: false });
+  assert.deepEqual(q.body.models, ['deepseek/deepseek-v4.1-flash', 'qwen/qwen3.8-flash'], 'v1.4.2: DeepSeek V4.1 Flash first, Qwen 3.8 Flash backup'); assert.deepEqual(q.body.reasoning, { enabled: false });
   fakeServices({ openrouter: () => new Response(JSON.stringify({ error: { message: 'Insufficient credits' } }), { status: 402 }) });
   r = await ai(ctx(req('/api/ai', { method: 'POST', cookie: ck, body: { system: 's', user: 'u', schema: { type: 'object' } } }), env));
   j = await r.json();

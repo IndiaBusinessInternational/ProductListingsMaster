@@ -1,4 +1,6 @@
-# IBI Product Listings Master v1.4.1
+# IBI Product Listings Master v1.4.2
+
+**v1.4.2 (9 Oct 2026)** — the cloud engine is **DeepSeek V4.1 Flash first, Qwen 3.8 Flash as OpenRouter's automatic backup** (CEO: "Use DeepSeek V4.1 Flash as a default from Open Router, if it fails then use Qwen 3.8 Flash as secondary option"). One request carries `models: [deepseek/deepseek-v4.1-flash, qwen/qwen3.8-flash]`; `CLOUD_MODEL` / `QWEN_MODEL` env vars override them. The engine id stays `qwen`, so the saved owner setting keeps working.
 
 **List once, sell everywhere.** A SaaS web app by India Business International: one master product record in, marketplace-ready listings out for Amazon India, Amazon Bazaar, Flipkart, Shopsy, Meesho, ShopClues, the IBI eCommerce Marketplace and more (JioMart, Snapdeal, Amazon.com, eBay, Etsy, Shopify, WooCommerce as preview channels, plus a no-code custom-channel builder), with dynamic SEO, compliance checks, a 0–100 listing score, exact upload sheets and a performance feedback loop.
 
