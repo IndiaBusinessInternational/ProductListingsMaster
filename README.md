@@ -1,4 +1,6 @@
-# IBI Product Listings Master v1.4.3
+# IBI Product Listings Master v1.4.4
+
+**v1.4.4 (11 Oct 2026)** — phones: panels and site cards use overflow-wrap break-word instead of anywhere (anywhere split button/label words mid-word on phones). SW `CACHE_NAME` → `plm-v1.4.4`.
 
 **v1.4.3 (11 Oct 2026)** — phones edge to edge (CEO rule): at 640 px and narrower the app's panels and the site's cards fill the screen width with no outer gutter, no rounded corners or side borders, 10 px inner side padding, and the page can never be wider than the screen (`overflow-x: clip`). Tablets and desktop unchanged; spacing only, no font changes. SW `CACHE_NAME` → `plm-v1.4.3` so returning visitors get the new stylesheet.
 

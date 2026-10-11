@@ -42,7 +42,7 @@ footer.site .cols { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 20px
 @media (max-width: 560px) { .g3, .g4, .pricing { grid-template-columns: 1fr; } section { padding: 40px 0; } .hero { padding: 48px 0 30px; } }
 /* v1.4.3 (CEO 11 Oct 2026: "edge to edge with no padding") - phones: no outer gutter, full-bleed cards, 10px inner side
    padding, never wider than the screen (clip, not hidden, so the sticky header keeps working). Spacing only. */
-@media (max-width: 640px) { html, body { overflow-x: clip; } .wrap { padding: 0 10px; } header.site .wrap { padding: 4px 8px; gap: 8px; height: auto; min-height: 60px; } .brand { min-width: 0; line-height: 1.2; } .brand .mark, .ver { flex: none; } nav.top a.cta { white-space: nowrap; padding: 9px 12px; } .legal { padding: 24px 10px 60px; } .card, .plan, .faq details { overflow-wrap: anywhere; } }
+@media (max-width: 640px) { html, body { overflow-x: clip; } .wrap { padding: 0 10px; } header.site .wrap { padding: 4px 8px; gap: 8px; height: auto; min-height: 60px; } .brand { min-width: 0; line-height: 1.2; } .brand .mark, .ver { flex: none; } nav.top a.cta { white-space: nowrap; padding: 9px 12px; } .legal { padding: 24px 10px 60px; } .card, .plan, .faq details { overflow-wrap: break-word; } }
 @media (max-width: 560px) {
   .grid, .pricing { margin-left: -10px; margin-right: -10px; gap: 8px; }
   .wrap.grid { margin-left: 0; margin-right: 0; padding-left: 0; padding-right: 0; }
