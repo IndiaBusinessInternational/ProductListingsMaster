@@ -1,4 +1,6 @@
-# IBI Product Listings Master v1.4.2
+# IBI Product Listings Master v1.4.3
+
+**v1.4.3 (11 Oct 2026)** — phones edge to edge (CEO rule): at 640 px and narrower the app's panels and the site's cards fill the screen width with no outer gutter, no rounded corners or side borders, 10 px inner side padding, and the page can never be wider than the screen (`overflow-x: clip`). Tablets and desktop unchanged; spacing only, no font changes. SW `CACHE_NAME` → `plm-v1.4.3` so returning visitors get the new stylesheet.
 
 **v1.4.2 (9 Oct 2026)** — the cloud engine is **DeepSeek V4.1 Flash first, Qwen 3.8 Flash as OpenRouter's automatic backup** (CEO: "Use DeepSeek V4.1 Flash as a default from Open Router, if it fails then use Qwen 3.8 Flash as secondary option"). One request carries `models: [deepseek/deepseek-v4.1-flash, qwen/qwen3.8-flash]`; `CLOUD_MODEL` / `QWEN_MODEL` env vars override them. The engine id stays `qwen`, so the saved owner setting keeps working.
 

@@ -246,5 +246,30 @@ code { font-family: var(--mono); font-size: .92em; background: var(--panel-2); p
   .help-panel .hf textarea { font-size: calc(16px * var(--ts)); }
   .hmsg { max-width: 96%; font-size: calc(15px * var(--ts)); }
 }
+/* v1.4.3 (CEO 11 Oct 2026: "edge to edge with no padding") - phones: no outer gutter, full-bleed panels,
+   10px inner side padding (keeps letters off curved screen edges), never wider than the screen
+   (clip, not hidden, so the sticky top bar keeps working). Spacing only - font sizes unchanged. */
+@media (max-width: 640px) {
+  html, body { overflow-x: clip; }
+  .topbar { padding: 0 8px; }
+  main { padding: 8px 0 96px; }
+  .page-head { padding: 0 10px; margin-bottom: 12px; }
+  .grid { gap: 8px; }
+  .g2, .g3, .g4 { grid-template-columns: minmax(0, 1fr); }
+  .studio { gap: 8px; }
+  .panel, fieldset.sec, .tbl-wrap, main > .callout { border-radius: 0; border-left: 0; border-right: 0; box-shadow: none; overflow-wrap: anywhere; }
+  main > .panel, main > fieldset.sec, main > .tbl-wrap, main > .callout, main > form > fieldset.sec { margin-bottom: 8px; }
+  .panel > .ph { padding: 12px 10px; }
+  .panel > .pb { padding: 14px 10px; }
+  .stat { padding: 12px 10px; }
+  fieldset.sec { padding: 12px 10px 14px; }
+  main > .callout { padding: 12px 10px; }
+  .stepper { padding: 0 10px; }
+  .empty { padding: 36px 10px; }
+  .modal .mh, .modal .mf { padding-left: 12px; padding-right: 12px; }
+  .modal .mb { padding: 14px 12px; }
+  .help-panel .hb { padding: 12px 10px; }
+  .help-panel .hf { padding: 10px; }
+}
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 @media print { .topbar, .sidebar, .tabbar, .page-head .actions, .btn { display: none !important; } main { padding: 0; } .panel { box-shadow: none; break-inside: avoid; } }
