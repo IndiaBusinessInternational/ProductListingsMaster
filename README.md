@@ -1,4 +1,6 @@
-# IBI Product Listings Master v1.4.4
+# IBI Product Listings Master v1.4.5
+
+**v1.4.5 (27 Oct 2026)** — WhatsApp link preview + Share button: og:image / twitter:image point at `og-banner.jpg` (1200x630 baseline JPEG under 300 KB; the 307 KB PNG was over the WhatsApp limit) with og:image:type image/jpeg and secure_url; the PNG stays deployed. `ibi-share.js` (IBI Share v1.0) adds a round share icon to the site header and the app top bar (it shares the home page). SW `CACHE_NAME` → `plm-v1.4.5` and caches the share script.
 
 **v1.4.4 (11 Oct 2026)** — phones: panels and site cards use overflow-wrap break-word instead of anywhere (anywhere split button/label words mid-word on phones). SW `CACHE_NAME` → `plm-v1.4.4`.
 
