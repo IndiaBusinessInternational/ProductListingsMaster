@@ -1,4 +1,6 @@
-# IBI Product Listings Master v1.4.5
+# IBI Product Listings Master v1.4.6
+
+**v1.4.6 (27 Oct 2026)** — Edge to edge on laptops and desktops too (CEO, 27 Oct 2026). Home and legal pages: no centred 1080 px column at any width; header 8 px, sections 10 px, cards and plans full-bleed with 10 px inner side padding; wide screens show the six how-it-works steps three across and the FAQ two across, prose keeps an 80-character line. App: main has no side gutter beside the sidebar, panels, sections and tables are full-bleed with 10 px inner side padding at every width, top bar 8 px. Phones unchanged. Backend constant 1.4.6 (version only).
 
 **v1.4.5 (27 Oct 2026)** — WhatsApp link preview + Share button: og:image / twitter:image point at `og-banner.jpg` (1200x630 baseline JPEG under 300 KB; the 307 KB PNG was over the WhatsApp limit) with og:image:type image/jpeg and secure_url; the PNG stays deployed. `ibi-share.js` (IBI Share v1.0) adds a round share icon to the site header and the app top bar (it shares the home page). SW `CACHE_NAME` → `plm-v1.4.5` and caches the share script.
 

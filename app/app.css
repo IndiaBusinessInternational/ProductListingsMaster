@@ -271,5 +271,23 @@ code { font-family: var(--mono); font-size: .92em; background: var(--panel-2); p
   .help-panel .hb { padding: 12px 10px; }
   .help-panel .hf { padding: 10px; }
 }
+/* v1.4.6 (CEO 27 Oct 2026: "make all the apps edge to edge on laptop too") - the spacing above now applies at
+   EVERY width: main has no side gutter beside the sidebar, panels / sections / tables are full-bleed (no side
+   border, radius or shadow) with 10px inner side padding, top bar 8px. Grids keep their columns on wide
+   screens; the phone stacking stays in the media queries. */
+html, body { overflow-x: clip; }
+.topbar { padding-left: 8px; padding-right: 8px; }
+main { padding-top: 8px; padding-left: 0; padding-right: 0; }
+.page-head { padding: 0 10px; }
+main > .split, main > .stepper, main > p, main > h2, main > h3 { padding-left: 10px; padding-right: 10px; }
+.panel, fieldset.sec, .tbl-wrap, main > .callout { border-radius: 0; border-left: 0; border-right: 0; box-shadow: none; overflow-wrap: break-word; }
+.panel > .ph { padding-left: 10px; padding-right: 10px; }
+.panel > .pb { padding-left: 10px; padding-right: 10px; }
+.stat { padding-left: 10px; padding-right: 10px; }
+fieldset.sec { padding-left: 10px; padding-right: 10px; }
+main > .callout { padding-left: 10px; padding-right: 10px; }
+.stepper { padding: 0 10px; }
+.empty { padding-left: 10px; padding-right: 10px; }
+button, .btn, .chip, .tag, select, input, [role="button"] { overflow-wrap: normal; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 @media print { .topbar, .sidebar, .tabbar, .page-head .actions, .btn { display: none !important; } main { padding: 0; } .panel { box-shadow: none; break-inside: avoid; } }

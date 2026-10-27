@@ -53,3 +53,32 @@ footer.site .cols { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 20px
   .steps .card { padding-left: 54px; } .steps .card::before { left: 10px; }
   .legal address { border-radius: 0; border-left: 0; border-right: 0; margin-left: -10px; margin-right: -10px; padding: 14px 10px; }
 }
+
+/* v1.4.6 (CEO 27 Oct 2026: "make all the apps edge to edge on laptop too") - the phone spacing now applies at
+   EVERY width: no centred 1080px column, header 8px, sections 10px, cards full-bleed (no side border, radius or
+   shadow) with 10px inner side padding. Wide screens use the width with more cards per row; prose keeps a
+   readable line length on the text itself. */
+html, body { overflow-x: clip; }
+.wrap { max-width: none; margin: 0; padding: 0 10px; }
+header.site .wrap { padding: 0 8px; }
+.grid, .pricing { margin-left: -10px; margin-right: -10px; }
+.wrap.grid { margin-left: 0; margin-right: 0; padding-left: 0; padding-right: 0; }
+.card, .plan, .faq details { border-radius: 0; border-left: 0; border-right: 0; box-shadow: none; padding-left: 10px; padding-right: 10px; overflow-wrap: break-word; }
+.plan.pop { box-shadow: none; border-top: 3px solid var(--accent); border-bottom: 3px solid var(--accent); }
+.plan .rib { right: 10px; }
+.steps .card { padding-left: 54px; } .steps .card::before { left: 10px; }
+section .wrap > p, .card p, .faq details p { max-width: 80ch; }
+.hero .lead { max-width: 760px; }
+.faq .wrap { padding-left: 0; padding-right: 0; }
+.faq .wrap > h2 { padding: 0 10px; }
+.faq details { margin-left: 0; margin-right: 0; }
+.legal { max-width: none; margin: 0; padding: 40px 10px 80px; }
+.legal > * { max-width: 80ch; }
+.legal > address { max-width: none; border-radius: 0; border-left: 0; border-right: 0; margin-left: -10px; margin-right: -10px; padding: 14px 10px; }
+@media (min-width: 1200px) {
+  .steps.g2 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .faq .wrap { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 16px; align-items: start; }
+  .faq .wrap > h2 { grid-column: 1 / -1; }
+}
+@media (max-width: 640px) { .legal { padding: 24px 10px 60px; } header.site .wrap { padding: 4px 8px; } }
+@media (max-width: 560px) { .grid, .pricing { gap: 8px; } }
