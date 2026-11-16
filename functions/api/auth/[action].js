@@ -1,5 +1,5 @@
-/* /api/auth/{signup|login|logout|me|password|delete} */
-import { json, err, notConfigured, readJson, isEmail, userKey, getUserByEmail, getUserById, putUser, hashPassword, randomHex, safeEq, makeSession, cookieHeader, sessionUser, rateLimit, clientIp, publicUser, aiUsed, SESSION_DAYS, handle } from '../_lib.js';
+/* /api/auth/{signup|login|google|logout|me|password|delete}  (google = owner-only Continue with Google, v1.5.0) */
+import { json, err, notConfigured, readJson, isEmail, userKey, getUserByEmail, getUserById, putUser, hashPassword, randomHex, safeEq, makeSession, cookieHeader, sessionUser, rateLimit, clientIp, publicUser, aiUsed, SESSION_DAYS, handle, verifyGoogleIdToken, OWNER_EMAIL } from '../_lib.js';
 
 export const onRequest = handle(async ({ request, env, params }) => {
   const action = params.action;
@@ -30,6 +30,19 @@ export const onRequest = handle(async ({ request, env, params }) => {
     const ok = u && safeEq(await hashPassword(pw, u.salt), u.pwHash);
     if (!ok) return err('Email or password is wrong', 401);
     return json({ ok: true, user: publicUser(u, await aiUsed(env, u.id)) }, 200, { 'Set-Cookie': cookieHeader(await makeSession(env, u), SESSION_DAYS * 86400) });
+  }
+  if (action === 'google') {
+    // Owner only: the Founder's Google account. Customers keep email + password (unchanged).
+    if (!await rateLimit(env, 'google:' + ip, 30, 900)) return err('Too many attempts; wait 15 minutes', 429);
+    const b = await readJson(request) || {};
+    let g; try { g = await verifyGoogleIdToken(env, b.credential); } catch (e) { return err('Google sign-in failed: ' + (e && e.message ? e.message : 'invalid token'), 401, { code: 'google_invalid' }); }
+    if (g.email !== OWNER_EMAIL) return err('Google sign-in is for the IBI owner only. Please sign in or create an account with your email and password.', 403, { code: 'not_owner' });
+    let u = await getUserByEmail(env, g.email);
+    if (!u) { const salt = randomHex(16); u = { id: randomHex(12), email: g.email, name: g.name || 'India Business International', salt, pwHash: await hashPassword(randomHex(32), salt), sessionSalt: randomHex(8), plan: 'free', planUntil: null, createdAt: new Date().toISOString() }; }
+    u.googleVerified = { email: g.email, sub: g.sub, at: new Date().toISOString() };   // the existing password is never touched
+    await putUser(env, u);
+    Object.defineProperty(u, 'viaGoogle', { value: true, enumerable: false, configurable: true });
+    return json({ ok: true, user: publicUser(u, await aiUsed(env, u.id)) }, 200, { 'Set-Cookie': cookieHeader(await makeSession(env, u, 'google'), SESSION_DAYS * 86400) });
   }
   if (action === 'logout') return json({ ok: true }, 200, { 'Set-Cookie': cookieHeader('', 0) });
 

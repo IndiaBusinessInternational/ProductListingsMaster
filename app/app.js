@@ -1,4 +1,4 @@
-/* IBI Product Listings Master — application (v1.4.6)
+/* IBI Product Listings Master — application (v1.5.0)
  * Local-first SPA. Every control is wired through data-act="<name>" → A.<name>; tests/audit_actions.mjs
  * fails the build if a data-act names an action that does not exist.
  */
@@ -35,6 +35,10 @@ const enabledChannels = () => allChannels().filter(c => S.settings.enabledChanne
 const productById = id => S.products.find(p => p.id === id);
 const listingRec = (pid, chid) => S.listings.find(l => l.productId === pid && l.channel === chid);
 const planOf = () => (cloud.state.user && cloud.state.user.plan) || 'free';
+/* v1.5.0: the IBI owner (Google-verified, server decides) gets Business limits free with no expiry; never on the pricing grid. */
+const isOwnerUser = () => !!(cloud.state.user && cloud.state.user.owner);
+const OWNER_PLAN_NAME = 'Owner (IBI) - all features, free';
+const planName = () => isOwnerUser() ? OWNER_PLAN_NAME : PLANS[planOf()].name;
 
 /* ───────── toast / modal ───────── */
 export function toast(msg, type = '') {
@@ -101,7 +105,7 @@ function paintNav() {
   const tabs = ['dashboard', 'products', 'studio', 'channels', 'account'];
   $('#tabBar').innerHTML = tabs.map(k => { const n = NAV.find(x => x[0] === k); return `<a href="#/${k}" class="${cur === k ? 'active' : ''}">${icon(n[2])}<span>${k === 'studio' ? 'Studio' : k === 'account' ? 'Account' : n[1]}</span></a>`; }).join('');
   const plan = PLANS[planOf()]; const u = cloud.state.user;
-  $('#planCard').innerHTML = `<b>${esc(plan.name)} plan</b><span class="small muted">${u ? esc(u.email) : 'Local mode — sign in to sync'}</span>${u && u.aiUsed != null ? `<div class="small muted">AI this month: ${u.aiUsed}/${plan.ai}</div>` : ''}${planOf() === 'free' ? `<div style="margin-top:8px"><a class="btn sm" href="#/account">Upgrade</a></div>` : ''}`;
+  $('#planCard').innerHTML = `<b>${isOwnerUser() ? esc(OWNER_PLAN_NAME) : esc(plan.name) + ' plan'}</b><span class="small muted">${u ? esc(u.email) : 'Local mode — sign in to sync'}</span>${u && u.aiUsed != null ? `<div class="small muted">AI this month: ${u.aiUsed}/${plan.ai}</div>` : ''}${planOf() === 'free' ? `<div style="margin-top:8px"><a class="btn sm" href="#/account">Upgrade</a></div>` : ''}`;
   $('#avatarBtn').textContent = u ? (u.name || u.email).slice(0, 1).toUpperCase() : '?';
   paintAbout(); paintSync();
 }
@@ -116,6 +120,7 @@ async function render() {
   try { v.innerHTML = await fn(S.route); } catch (e) { console.error(e); v.innerHTML = `<div class="callout err">Something broke while drawing this page: ${esc(e.message)}. <a href="#/dashboard">Back to the dashboard</a></div>`; }
   $$('textarea.auto', v).forEach(autosize);
   if (S.route.name === 'studio' && S.route.id) mountStudio();
+  if ($('#gOwnerBtn', v)) mountOwnerGoogle($('#gOwnerBtn', v));
 }
 function autosize(t) { t.style.height = 'auto'; t.style.height = (t.scrollHeight + 2) + 'px'; }
 document.addEventListener('input', e => { if (e.target.matches('textarea.auto')) autosize(e.target); });
@@ -408,13 +413,13 @@ async function vExports() {
 
 /* ── Account ── */
 async function vAccount() {
-  const u = cloud.state.user, plan = planOf();
-  const pricing = `<div class="pricing">${Object.entries(PLANS).map(([k, pl]) => `<div class="plan ${plan === k ? 'cur' : ''}">${pl.popular ? '<span class="rib">Most popular</span>' : ''}<b>${esc(pl.name)}</b><div class="price">${pl.price ? `₹${pl.price.toLocaleString('en-IN')}<small>/month, GST incl.</small>` : 'Free'}</div><ul><li>${pl.products.toLocaleString('en-IN')} products in cloud sync</li><li>${pl.ai} AI enhancements / month</li><li>${pl.custom >= 99 ? 'Unlimited' : pl.custom} custom channel${pl.custom === 1 ? '' : 's'}</li><li>${pl.seats} seat${pl.seats > 1 ? 's' : ''}</li>${k !== 'free' ? '<li>Performance loop + priority fixes</li>' : '<li>Every channel, unlimited local products</li>'}</ul>${plan === k ? '<span class="tag ok">Current plan</span>' : k === 'free' ? '' : `<button class="btn ${pl.popular ? 'primary' : ''}" data-act="choosePlan" data-id="${k}">Choose ${esc(pl.name)}</button>`}</div>`).join('')}</div>`;
+  const u = cloud.state.user, plan = planOf(), cur = isOwnerUser() ? null : plan;
+  const pricing = `<div class="pricing">${Object.entries(PLANS).map(([k, pl]) => `<div class="plan ${cur === k ? 'cur' : ''}">${pl.popular ? '<span class="rib">Most popular</span>' : ''}<b>${esc(pl.name)}</b><div class="price">${pl.price ? `₹${pl.price.toLocaleString('en-IN')}<small>/month, GST incl.</small>` : 'Free'}</div><ul><li>${pl.products.toLocaleString('en-IN')} products in cloud sync</li><li>${pl.ai} AI enhancements / month</li><li>${pl.custom >= 99 ? 'Unlimited' : pl.custom} custom channel${pl.custom === 1 ? '' : 's'}</li><li>${pl.seats} seat${pl.seats > 1 ? 's' : ''}</li>${k !== 'free' ? '<li>Performance loop + priority fixes</li>' : '<li>Every channel, unlimited local products</li>'}</ul>${cur === k ? '<span class="tag ok">Current plan</span>' : k === 'free' ? '' : `<button class="btn ${pl.popular ? 'primary' : ''}" data-act="choosePlan" data-id="${k}">Choose ${esc(pl.name)}</button>`}</div>`).join('')}</div>`;
   const backup = `<div class="panel" style="margin-top:14px"><div class="ph"><h3>Backup</h3></div><div class="pb split"><button class="btn" data-act="backupExport">Download backup (JSON)</button><button class="btn" data-act="backupImport">Restore from backup</button><span class="small muted">Everything in this workspace — products, listings, performance rows, custom channels, settings. Keys are never included.</span></div></div>`;
   if (!cloud.state.available) return pageHead('Account & plan', 'Local mode') + `<div class="callout warn"><div><b>The online service is not reachable</b> (${esc(cloud.state.error || 'offline')}). Everything on this device keeps working — products, the rule engine, exports. Sign-in, cloud sync, server AI, live suggestions and billing return when you are online at the live site.</div></div>` + backup + `<div style="margin-top:18px"><h2>Plans</h2>${pricing}</div>`;
-  if (!u) return pageHead('Account & plan', 'Sign in to sync this workspace across devices, use server AI and manage your plan.') + `<div class="grid g2"><div class="panel"><div class="ph"><h3 id="authTitle">${S.authMode === 'signup' ? 'Create your account' : 'Sign in'}</h3><button class="btn sm ghost" data-act="authSwitch">${S.authMode === 'signup' ? 'I have an account' : 'Create account'}</button></div><div class="pb"><form id="authForm" onsubmit="return false" autocomplete="on">${S.authMode === 'signup' ? '<div class="field"><label>Your name / business</label><input class="input" name="name" autocomplete="organization"></div>' : ''}<div class="field" style="margin-top:8px"><label>Email (your username)</label><input class="input" name="username" type="email" autocomplete="username" required inputmode="email"></div><div class="field" style="margin-top:8px"><label>Password</label><input class="input" name="password" type="password" autocomplete="${S.authMode === 'signup' ? 'new-password' : 'current-password'}" minlength="8" required></div><div class="split" style="margin-top:12px"><button class="btn primary" data-act="authSubmit">${S.authMode === 'signup' ? 'Create account' : 'Sign in'}</button><span class="small muted">${S.authMode === 'signup' ? 'Free plan, no card. 8+ character password.' : ''}</span></div></form></div></div><div class="panel"><div class="ph"><h3>What an account adds</h3></div><div class="pb help"><ul><li>Cloud sync of this workspace across your laptop, phone and staff devices.</li><li>Server-side AI enhancement with a monthly quota per plan — no key handling.</li><li>Plan upgrades, invoices and support.</li></ul><p class="small muted">Local mode never expires. Your data stays in this browser until you sync.</p></div></div></div>` + backup + `<div style="margin-top:18px"><h2>Plans</h2>${pricing}</div>`;
+  if (!u) return pageHead('Account & plan', 'Sign in to sync this workspace across devices, use server AI and manage your plan.') + `<div class="grid g2"><div class="panel"><div class="ph"><h3 id="authTitle">${S.authMode === 'signup' ? 'Create your account' : 'Sign in'}</h3><button class="btn sm ghost" data-act="authSwitch">${S.authMode === 'signup' ? 'I have an account' : 'Create account'}</button></div><div class="pb"><form id="authForm" onsubmit="return false" autocomplete="on">${S.authMode === 'signup' ? '<div class="field"><label>Your name / business</label><input class="input" name="name" autocomplete="organization"></div>' : ''}<div class="field" style="margin-top:8px"><label>Email (your username)</label><input class="input" name="username" type="email" autocomplete="username" required inputmode="email"></div><div class="field" style="margin-top:8px"><label>Password</label><input class="input" name="password" type="password" autocomplete="${S.authMode === 'signup' ? 'new-password' : 'current-password'}" minlength="8" required></div><div class="split" style="margin-top:12px"><button class="btn primary" data-act="authSubmit">${S.authMode === 'signup' ? 'Create account' : 'Sign in'}</button><span class="small muted">${S.authMode === 'signup' ? 'Free plan, no card. 8+ character password.' : ''}</span></div></form>${ownerSignInBlock()}</div></div><div class="panel"><div class="ph"><h3>What an account adds</h3></div><div class="pb help"><ul><li>Cloud sync of this workspace across your laptop, phone and staff devices.</li><li>Server-side AI enhancement with a monthly quota per plan — no key handling.</li><li>Plan upgrades, invoices and support.</li></ul><p class="small muted">Local mode never expires. Your data stays in this browser until you sync.</p></div></div></div>` + backup + `<div style="margin-top:18px"><h2>Plans</h2>${pricing}</div>`;
   return pageHead('Account & plan', esc(u.email), `<button class="btn" data-act="syncNow">Sync now</button><button class="btn" data-act="signOut">Sign out</button>`)
-    + `<div class="grid g3"><div class="panel stat"><div class="l">Plan</div><div class="v">${esc(PLANS[plan].name)}</div><div class="small muted">${u.planUntil ? `until ${fmtDate(u.planUntil)}` : plan === 'free' ? 'no expiry' : ''}</div></div><div class="panel stat"><div class="l">AI enhancements this month</div><div class="v">${u.aiUsed || 0} <span class="muted" style="font-size:14px">/ ${PLANS[plan].ai}</span></div></div><div class="panel stat"><div class="l">Last sync</div><div class="v" style="font-size:18px">${cloud.state.lastSync ? new Date(cloud.state.lastSync).toLocaleString('en-IN') : '—'}</div><label class="check small" style="margin-top:6px"><input type="checkbox" data-act="toggleAutoSync" ${S.settings.autoSync ? 'checked' : ''}><span class="switch"></span> Auto-sync after changes</label></div></div>
+    + `<div class="grid g3"><div class="panel stat"><div class="l">Plan</div><div class="v"${isOwnerUser() ? ' style="font-size:calc(18px * var(--ts))"' : ''}>${esc(planName())}</div><div class="small muted">${isOwnerUser() ? 'Business limits, no expiry' : u.planUntil ? `until ${fmtDate(u.planUntil)}` : plan === 'free' ? 'no expiry' : ''}</div></div><div class="panel stat"><div class="l">AI enhancements this month</div><div class="v">${u.aiUsed || 0} <span class="muted" style="font-size:14px">/ ${PLANS[plan].ai}</span></div></div><div class="panel stat"><div class="l">Last sync</div><div class="v" style="font-size:18px">${cloud.state.lastSync ? new Date(cloud.state.lastSync).toLocaleString('en-IN') : '—'}</div><label class="check small" style="margin-top:6px"><input type="checkbox" data-act="toggleAutoSync" ${S.settings.autoSync ? 'checked' : ''}><span class="switch"></span> Auto-sync after changes</label></div></div>
     <div style="margin-top:18px"><h2>Plans</h2>${pricing}<p class="small muted" style="margin-top:8px">Prices include 18% GST. ${cloud.state.billing ? 'Pay by card, UPI or netbanking through Razorpay; the plan activates the moment payment is captured.' : 'Pay by UPI to <b>indiabusinessinternational@okicici</b> and send the reference on WhatsApp; the plan is switched on within 12 hours.'}</p></div>`
     + backup + `<div class="panel" style="margin-top:14px"><div class="ph"><h3>Security</h3></div><div class="pb split"><button class="btn" data-act="changePassword">Change password</button><button class="btn danger" data-act="deleteAccount">Delete account</button><span class="small muted">Deleting removes your cloud copy; the local copy on this device stays until you reset it in Settings.</span></div></div>`;
 }
@@ -747,6 +752,39 @@ async function exportChannels(chids, pids, el) {
     toast(`${chids.length} sheet${chids.length > 1 ? 's' : ''} downloaded`, 'ok');
   });
 }
+/* ── v1.5.0: Owner sign-in — Continue with Google (Google Identity Services). Owner only: the server accepts
+   indiabusinessinternational@gmail.com and refuses every other Google account with a plain message. Customers keep
+   the email + password form above, unchanged. */
+const GSI_SRC = 'https://accounts.google.com/gsi/client';
+const GOOGLE_CLIENT_ID_FALLBACK = '861626146743-tc8qeau1ijvb0g01ujifp1v0m60gdcan.apps.googleusercontent.com';
+function ownerSignInBlock() {
+  if (!cloud.state.available || cloud.state.google === false) return '';
+  return `<div class="owner-signin"><div class="owner-signin-label">Owner sign-in: Continue with Google</div><div class="muted">For the IBI owner account only. Customers: use the email and password form above.</div><div id="gOwnerBtn" class="owner-gbtn"></div></div>`;
+}
+let gsiLoading = null;
+function loadGsi() {
+  if (window.google && window.google.accounts && window.google.accounts.id) return Promise.resolve();
+  if (!gsiLoading) gsiLoading = new Promise((res, rej) => { const s = document.createElement('script'); s.src = GSI_SRC; s.async = true; s.onload = res; s.onerror = () => { gsiLoading = null; rej(new Error('Could not load Google sign-in')); }; document.head.appendChild(s); });
+  return gsiLoading;
+}
+async function onOwnerGoogle(resp) {
+  if (!resp || !resp.credential) { toast('Google sign-in was cancelled', 'warn'); return; }
+  try {
+    await cloud.google(resp.credential); await cloud.me();
+    toast(isOwnerUser() ? 'Signed in as the IBI owner' : 'Signed in', 'ok');
+    try { await syncWorkspace(); } catch (err) { toast('Signed in, but the first sync failed: ' + err.message, 'warn'); }
+    render();
+  } catch (err) { toast(err.message, 'err'); }
+}
+async function mountOwnerGoogle(el) {
+  try {
+    await loadGsi(); if (!el.isConnected) return;
+    window.google.accounts.id.initialize({ client_id: cloud.state.googleClientId || GOOGLE_CLIENT_ID_FALLBACK, callback: onOwnerGoogle, auto_select: false, cancel_on_tap_outside: true, context: 'signin', ux_mode: 'popup' });
+    const w = Math.max(200, Math.min(320, Math.floor(el.clientWidth || 280)));   // GIS accepts 200–400 px
+    window.google.accounts.id.renderButton(el, { type: 'standard', theme: 'outline', size: 'large', text: 'continue_with', shape: 'rectangular', logo_alignment: 'left', width: w });
+  } catch (e) { el.innerHTML = `<span class="small muted">${esc(e.message)} — check the connection and reload.</span>`; }
+}
+
 async function razorpayFlow(planKey, el) {
   await withBusy(el, async () => {
     const o = await cloud.order(planKey);

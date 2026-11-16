@@ -291,3 +291,8 @@ main > .callout { padding-left: 10px; padding-right: 10px; }
 button, .btn, .chip, .tag, select, input, [role="button"] { overflow-wrap: normal; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 @media print { .topbar, .sidebar, .tabbar, .page-head .actions, .btn { display: none !important; } main { padding: 0; } .panel { box-shadow: none; break-inside: avoid; } }
+
+/* v1.5.0: Owner sign-in (Continue with Google) under the customer sign-in form - 16px label, fits 360px */
+.owner-signin { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); display: grid; gap: 6px; }
+.owner-signin-label { font-size: calc(16px * var(--ts)); font-weight: 650; }
+.owner-gbtn { min-height: 44px; max-width: 100%; overflow: hidden; }

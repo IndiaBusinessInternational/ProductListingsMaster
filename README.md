@@ -1,4 +1,6 @@
-# IBI Product Listings Master v1.4.6
+# IBI Product Listings Master v1.5.0
+
+**v1.5.0 (16 Nov 2026)** — Owner sign-in: Continue with Google (Founder, 16 Nov 2026: one owner account across all IBI web apps = his Google account `indiabusinessinternational@gmail.com`; customers keep their own email + password accounts, unchanged). New `POST /api/auth/google {credential}`: the Google ID token is verified server-side (RS256 against Google's keys, issuer, audience = IBI's OAuth client or env `GOOGLE_CLIENT_ID`, expiry, `email_verified`; verifier copied from IBI Apps). Only the owner email may use it; any other Google account gets 403 "Google sign-in is for the IBI owner only…". The existing owner account in KV is reused (its password is never changed) or created if missing; `u.googleVerified` is stored and the session cookie carries a signed `g` marker. The owner plan (Business limits, free, no expiry, shown as "Owner (IBI) - all features, free", never on the pricing grid) needs the owner email AND `googleVerified` AND a Google session, so typing the owner email into the password form never grants it. Billing still works for the owner (every paid plan keeps its Choose button, to test Razorpay). Rate-limited like login (30 / 15 min per IP). `/api/version` reports `google` and `googleClientId`. Account page: a small "Owner sign-in: Continue with Google" block (Google Identity Services button) under the unchanged sign-in form.
 
 **v1.4.6 (27 Oct 2026)** — Edge to edge on laptops and desktops too (CEO, 27 Oct 2026). Home and legal pages: no centred 1080 px column at any width; header 8 px, sections 10 px, cards and plans full-bleed with 10 px inner side padding; wide screens show the six how-it-works steps three across and the FAQ two across, prose keeps an 80-character line. App: main has no side gutter beside the sidebar, panels, sections and tables are full-bleed with 10 px inner side padding at every width, top bar 8 px. Phones unchanged. Backend constant 1.4.6 (version only).
 
@@ -28,7 +30,7 @@ app/                 the application (vanilla ES modules, PWA, IndexedDB local-f
 functions/           Cloudflare Pages Functions (backend, raw HTTP to providers, KV storage)
   api/_lib.js        VERSION, plans, PBKDF2 passwords, HMAC sessions, KV user model, rate limits
   api/version.js     GET  → version + configured features  (the app shows "Backend vX ✓ in step")
-  api/auth/[action]  signup · login · logout · me · password · delete
+  api/auth/[action]  signup · login · google (owner only) · logout · me · password · delete
   api/data.js        GET/PUT the signed-in user's workspace (plan product limit enforced)
   api/ai.js          POST server-side AI enhancement (Anthropic / Gemini / DeepSeek / local), monthly quota per plan
   api/suggest.js     GET ?q= live Google + Amazon.in autocomplete for the keyword pool (KV-cached 24 h)

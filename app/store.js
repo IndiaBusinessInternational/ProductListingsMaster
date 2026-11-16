@@ -1,5 +1,5 @@
 /* IBI Product Listings Master — storage (IndexedDB, local-first) + cloud sync client */
-export const APP_VERSION = '1.4.6';
+export const APP_VERSION = '1.5.0';
 const DB_NAME = 'plm', DB_VER = 1;
 const STORES = ['products', 'listings', 'perf', 'channels', 'settings', 'kwcache'];
 let dbp = null;
@@ -109,15 +109,16 @@ export async function ceoVerify(pin, onRetry) {
 }
 
 export const cloud = {
-  state: { available: null, version: null, features: [], ai: false, billing: false, suggest: false, user: null, lastSync: null, error: null },
+  state: { available: null, version: null, features: [], ai: false, billing: false, suggest: false, google: false, googleClientId: null, user: null, lastSync: null, error: null },
   async probe() {
-    try { const v = await call('version'); Object.assign(this.state, { available: true, version: v.version, features: v.features || [], ai: !!v.ai, billing: !!v.billing, suggest: !!v.suggest, error: null }); }
+    try { const v = await call('version'); Object.assign(this.state, { available: true, version: v.version, features: v.features || [], ai: !!v.ai, billing: !!v.billing, suggest: !!v.suggest, google: !!v.google, googleClientId: v.googleClientId || null, error: null }); }
     catch (e) { Object.assign(this.state, { available: false, version: null, error: e.status ? `HTTP ${e.status}` : 'offline' }); }
     return this.state;
   },
   async me() { try { const m = await call('auth/me'); this.state.user = m.user || null; } catch (e) { if (e.status !== 401) this.state.error = e.message; this.state.user = null; } return this.state.user; },
   signup: (email, password, name) => call('auth/signup', { method: 'POST', body: { email, password, name } }),
   login: (email, password) => call('auth/login', { method: 'POST', body: { email, password } }),
+  google: credential => call('auth/google', { method: 'POST', body: { credential } }),   // v1.5.0: owner-only Continue with Google
   logout: () => call('auth/logout', { method: 'POST' }),
   changePassword: (oldPassword, newPassword) => call('auth/password', { method: 'POST', body: { oldPassword, newPassword } }),
   deleteAccount: password => call('auth/delete', { method: 'POST', body: { password } }),
