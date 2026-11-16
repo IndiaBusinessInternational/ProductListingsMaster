@@ -1,4 +1,4 @@
-/* IBI Product Listings Master — application (v1.5.0)
+/* IBI Product Listings Master — application (v1.5.1)
  * Local-first SPA. Every control is wired through data-act="<name>" → A.<name>; tests/audit_actions.mjs
  * fails the build if a data-act names an action that does not exist.
  */
@@ -863,6 +863,6 @@ window.addEventListener('online', () => { cloud.probe().then(() => { paintNav();
   const r = parseRoute();
   if (r.name === 'products' && r.id) { S.route = r; paintNav(); $('#view').innerHTML = await vProductEdit(r.id); $$('textarea.auto').forEach(autosize); } else await render();
   helpMount();
-  cloud.probe().then(async () => { if (cloud.state.available) { await cloud.me(); if (cloud.state.user && S.settings.autoSync) { try { await syncWorkspace(); await loadAll(); if (S.route.name !== 'products' || !S.route.id) render(); } catch (e) { console.warn(e); } } } paintNav(); });
+  cloud.probe().then(async () => { if (cloud.state.available) { await cloud.me(); if (cloud.state.user && S.settings.autoSync) { try { await syncWorkspace(); await loadAll(); if (S.route.name !== 'products' || !S.route.id) render(); } catch (e) { console.warn(e); } } } paintNav(); if (S.route.name === 'account') render(); /* v1.5.1: a page opened straight on #/account was drawn before the probe answered and stayed on "not reachable" */ });
   if ('serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js').then(reg => { reg.addEventListener('updatefound', () => { const nw = reg.installing; nw && nw.addEventListener('statechange', () => { if (nw.state === 'installed' && navigator.serviceWorker.controller) toast('Update ready — reload to get the new version'); }); }); }).catch(() => { /* file:// or unsupported */ }); }
 })();

@@ -120,5 +120,5 @@ test('a password session cannot be turned into a Google session by adding the g 
 
 test('/api/version advertises Google sign-in and the client id', async () => {
   const j = await (await version({ env: mkEnv() })).json();
-  assert.equal(j.version, '1.5.0'); assert.equal(j.google, true); assert.equal(j.googleClientId, lib.GOOGLE_CLIENT_ID);
+  assert.equal(j.version, '1.5.1'); assert.equal(j.google, true); assert.equal(j.googleClientId, lib.GOOGLE_CLIENT_ID);
 });
